@@ -8,6 +8,7 @@ vector<Vector2f> playerPositions(2);
 pair<Vector2f, Color> rainbowBall;
 ClockType::time_point spawnTime;
 ClockType::time_point lastSpawnAttempt = ClockType::now();
+static Clock ticker;
 bool running = true;
 bool hasRainbowBall = false;
 bool bothPlayersConnected = false; // Track if both players are connected
@@ -36,7 +37,10 @@ void SetupServer(unsigned short port) {
 		}
 
 		if (bothPlayersConnected) {
-			sendPlayerPositions(clients);
+			if (ticker.getElapsedTime().asMilliseconds() > 20) {
+				sendPlayerPositions(clients);
+				ticker.restart();
+			}
 			if (!hasRainbowBall) trySpawnRainbowBall();
 			else checkRainbowBallTimeout();
 		}
@@ -104,6 +108,13 @@ void processClientData(TcpSocket& client, SocketSelector& selector, vector<uniqu
 		if (command == "UPDATE_POSITION") {
 			float x, y;
 			packet >> x >> y;
+
+			//if (abs(playerPositions[clientIndex].x - previousPositions[clientIndex].x) > threshold ||
+			//	abs(playerPositions[clientIndex].y - previousPositions[clientIndex].y) > threshold) {
+			//	// Send update
+			//}
+
+
 			playerPositions[clientIndex] = Vector2f(x, y);
 			cout << "Updating position for client " << clientIndex
 				<< ": (" << x << ", " << y << ")\n";
