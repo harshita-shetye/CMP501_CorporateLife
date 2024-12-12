@@ -63,9 +63,13 @@ bool receiveInitialPosition(TcpSocket& socket, float& x, float& y);
 
 // Player setup and game loop
 void setupPlayerShape(CircleShape& playerShape, float x, float y);
-void renderPlayers(RenderWindow& window);
+
 void gameLoop(RenderWindow& window, TcpSocket& socket);
-void receivePlayerPositions(TcpSocket& socket);
+void sendPlayerPosition(TcpSocket& socket, const CircleShape& playerShape);
+void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& otherPlayerPositions);
+void renderPlayer(RenderWindow& window, float x, float y);
+void renderOtherPlayers(RenderWindow& window, const vector<Vector2f>& otherPlayerPositions);
+
 
 // Network data handling
 void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<Color>& colors);

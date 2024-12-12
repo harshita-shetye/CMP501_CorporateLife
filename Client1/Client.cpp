@@ -5,12 +5,13 @@ bool hasRainbowBall = false;
 RenderWindow* window = nullptr; // Pointer to the game window
 TcpSocket socket;
 CircleShape playerShape(CIRCLE_RADIUS);
-vector<Vector2f> playerPositions;
+vector<Vector2f> otherPlayerPositions;
 vector<Vector2f> rainbowPositions;
 vector<Color> rainbowColors;
 GameState currentState;
 unordered_map<int, Player> players;
-int playerID = -1;  // We'll assign a player ID when connecting to the server
+int playerID = 1;  // We'll assign a player ID when connecting to the server
+
 
 // Function to attempt connecting to the server
 bool connectToServer(TcpSocket& socket) {
@@ -80,8 +81,6 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 			Vector2i mousePos = Mouse::getPosition(*window);
 			playButton.setFillColor(playButton.getGlobalBounds().contains(Vector2f(mousePos)) ? Color(70, 130, 180) : Color(100, 149, 237));
 			quitButton.setFillColor(quitButton.getGlobalBounds().contains(Vector2f(mousePos)) ? Color(255, 69, 0) : Color(178, 34, 34));
-
-
 
 			// Handle events (e.g., button clicks)
 			Event event;
@@ -201,9 +200,18 @@ void handleWaitingState(RenderWindow* window, TcpSocket& socket) {
 bool receiveInitialPosition(TcpSocket& socket, float& x, float& y) {
 	Packet positionPacket;
 	if (socket.receive(positionPacket) == Socket::Done) {
-		positionPacket >> x >> y;
-		cout << "Received initial spawn position: (" << x << ", " << y << ")" << endl;
-		return true;
+		string command;
+		positionPacket >> command;
+
+		if (command == "PLAYER_POSITIONS") {
+			positionPacket >> x >> y; // Now we extract the position after confirming the command
+			cout << "Received initial spawn position: (" << x << ", " << y << ")" << endl;
+			return true;
+		}
+		else {
+			cout << "Received unexpected command: " << command << endl;
+			return false;
+		}
 	}
 	else {
 		cout << "Failed to receive initial position!" << endl;
@@ -233,6 +241,7 @@ void startGame(RenderWindow*& window, TcpSocket& socket) {
 	gameLoop(*window, socket);
 }
 
+
 // Main game loop for rendering and handling player movement
 void gameLoop(RenderWindow& window, TcpSocket& socket) {
 	window.setFramerateLimit(60);  // Cap the framerate
@@ -240,12 +249,6 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 	// Create a player shape and set its initial position
 	Vector2f targetPos; // Target position based on mouse
 	float moveSpeed = 200.f; // Speed of movement in pixels per second
-	setupPlayerShape(playerShape, 100.f, 100.f); // Initial position
-
-	// Send initial player position to server
-	sf::Packet initPacket;
-	initPacket << playerShape.getPosition().x << playerShape.getPosition().y;
-	socket.send(initPacket);
 
 	Clock clock; // For frame-based timing
 
@@ -261,7 +264,7 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		}
 
 		// Update target position to the mouse location
-		targetPos = Vector2f(Mouse::getPosition(window));
+		targetPos = window.mapPixelToCoords(Mouse::getPosition(window)); //convert the pixel coordinates from the mouse to world coordinates, especially if the view has been transformed
 
 		// Get the current position of the player
 		Vector2f currentPos = playerShape.getPosition();
@@ -269,12 +272,14 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		// Compute direction vector and normalize it
 		Vector2f direction = targetPos - currentPos;
 		float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
-		if (length > 0.1f) { // Prevent jittering when close to the target
+		if (length > 0.1f) { // Prevent jittering when close to the target. Move only if the target is sufficiently far.
 			direction /= length;
 
 			// Move the player towards the target position
 			playerShape.move(direction * moveSpeed * deltaTime);
 		}
+
+
 
 		// Clamp the player's position within the window bounds
 		Vector2f position = playerShape.getPosition();
@@ -284,53 +289,84 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		position.y = std::max(0.f, std::min(position.y, window.getSize().y - 2 * radius));
 		playerShape.setPosition(position);
 
+
+		// Send updated position to the server
+		sendPlayerPosition(socket, playerShape);
+
+
 		// Send updated player position to the server
 		sf::Packet packet;
 		packet << playerShape.getPosition().x << playerShape.getPosition().y;
-		socket.send(packet);
+		socket.send(packet); // Sending correctly
 
 		// Receive player positions and rainbow data from the server
-		receivePlayerPositions(socket);
+		receivePlayerPositions(socket, otherPlayerPositions);
 		receiveRainbowData(socket, rainbowPositions, rainbowColors);
 
 		// Clear the window and render everything
 		window.clear();
-		renderPlayers(window); // Render all players (local and remote)
+		renderPlayer(window, playerShape.getPosition().x, playerShape.getPosition().y);
+		renderOtherPlayers(window, otherPlayerPositions); // Render all players (local and remote)
 		drawRainbowBalls(window); // Draw the rainbow balls (if applicable)
 		window.display();
 	}
 }
 
+void sendPlayerPosition(TcpSocket& socket, const CircleShape& playerShape) {
+	Packet packet;
+	packet << "UPDATE_POSITION" << playerShape.getPosition().x << playerShape.getPosition().y;
+	if (socket.send(packet) != Socket::Done) {
+		cerr << "Failed to send player position to the server.\n";
+	}
+}
+
 // Function to receive player positions from the server
-void receivePlayerPositions(TcpSocket& socket) {
-	sf::Packet packet;
-	if (socket.receive(packet) == sf::Socket::Done) {
-		playerPositions.clear();  // Clear the previous positions
-		float x, y;
-		for (size_t i = 0; i < 2; ++i) {  // Assuming 2 players, adjust as needed
-			packet >> x >> y;
-			playerPositions.push_back(Vector2f(x, y));
+void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& otherPlayerPositions) {
+	Packet packet;
+	if (socket.receive(packet) == Socket::Done) {
+		string command;
+		packet >> command;
+
+		if (command == "PLAYER_POSITIONS") {
+			otherPlayerPositions.clear();
+			for (size_t i = 0; i < 2; ++i) { //playerPositions // otherPlayerPositions.size()
+				float x, y;
+				packet >> x >> y;
+				otherPlayerPositions.push_back(Vector2f(x, y));
+			}
 		}
 	}
 }
 
-// Function to render all players, including local and remote
-void renderPlayers(RenderWindow& window) {
-	// Draw the local player (green)
+void renderPlayer(RenderWindow& window, float x, float y) {
+	// Set up the player's shape with the given position
+	playerShape.setRadius(CIRCLE_RADIUS);
+	playerShape.setFillColor(Color::Green);
+	playerShape.setOutlineThickness(CIRCLE_BORDER);
+	playerShape.setOutlineColor(Color(250, 150, 100));
+	playerShape.setPosition(x, y);
 	window.draw(playerShape);
-
-	// Draw other players (remote)
-	for (const auto& pos : playerPositions) {
-		CircleShape otherPlayer(CIRCLE_RADIUS);
-		otherPlayer.setPosition(pos);
-		otherPlayer.setFillColor(Color::Red);  // Use a different color for other players
-		window.draw(otherPlayer);
-	}
 }
+
+// Function to render all players, including local and remote
+void renderOtherPlayers(RenderWindow& window, const vector<Vector2f>& otherPlayerPositions) {
+	CircleShape otherPlayerShape(CIRCLE_RADIUS);
+	otherPlayerShape.setFillColor(Color::Blue);
+	otherPlayerShape.setOutlineThickness(CIRCLE_BORDER);
+	otherPlayerShape.setOutlineColor(Color::White);
+
+	for (const auto& position : otherPlayerPositions) {
+		otherPlayerShape.setPosition(position);
+		window.draw(otherPlayerShape);
+		cout << "Drawn OTHER player: " << otherPlayerShape.getPosition().x << ", " << otherPlayerShape.getPosition().y;
+	}
+
+}
+
 
 void drawRainbowBalls(RenderWindow& window) {
 	for (size_t i = 0; i < rainbowPositions.size(); ++i) {
-		CircleShape rainbow(CIRCLE_RADIUS);
+		CircleShape rainbow(RAINBOW_RADIUS);
 		rainbow.setPosition(rainbowPositions[i]);
 		rainbow.setFillColor(rainbowColors[i]);
 		window.draw(rainbow);
@@ -351,6 +387,7 @@ void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<C
 			receivedPacket >> x >> y >> r >> g >> b;
 			positions.push_back(Vector2f(x, y));
 			colors.push_back(Color(r, g, b));
+			cout << "Rainbow received \n";
 		}
 		else if (command == "DESPAWN") {
 			positions.clear();

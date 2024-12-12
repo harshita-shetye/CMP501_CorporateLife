@@ -13,7 +13,6 @@ bool hasRainbowBall = false;
 bool bothPlayersConnected = false; // Track if both players are connected
 
 
-
 void SetupServer(unsigned short port) {
 	if (listener.listen(port) != Socket::Done) {
 		cerr << "Failed to start the server on port " << port << ".\n";
@@ -71,7 +70,7 @@ void sendFullLobbyMessage(TcpListener& listener) {
 	}
 }
 
-void  notifyClientsOnConnection() {
+void notifyClientsOnConnection() {
 	// If there is only 1 player, inform them they're waiting for another player
 	if (clients.size() == 1) {
 		// Notify the first player that they're waiting for the second player
@@ -94,17 +93,24 @@ void  notifyClientsOnConnection() {
 }
 
 
-
-
 void processClientData(TcpSocket& client, SocketSelector& selector, vector<unique_ptr<TcpSocket>>& clients, size_t clientIndex) {
 	Packet packet;
 	auto status = client.receive(packet);
 
 	if (status == Socket::Done) {
-		string message;
-		packet >> message;
+		string command;
+		packet >> command;
 
-		if (message == "DESPAWN") despawnRainbowBall(clients);
+		if (command == "UPDATE_POSITION") {
+			float x, y;
+			packet >> x >> y;
+			playerPositions[clientIndex] = Vector2f(x, y);
+			cout << "Updating position for client " << clientIndex
+				<< ": (" << x << ", " << y << ")\n";
+		}
+		else if (command == "DESPAWN") {
+			despawnRainbowBall(clients);
+		}
 	}
 	else if (status == Socket::Disconnected) {
 		handleDisconnection(client, selector, clients, clientIndex);
@@ -120,11 +126,6 @@ void handleDisconnection(TcpSocket& client, SocketSelector& selector, vector<uni
 	clients.erase(clients.begin() + index);
 	bothPlayersConnected = (clients.size() == 2);
 }
-
-
-
-
-
 
 
 void trySpawnRainbowBall() {
@@ -169,28 +170,23 @@ void broadcastToClients(Packet& packet) {
 }
 
 
-
 void sendPlayerPositions(vector<unique_ptr<TcpSocket>>& clients) {
-	for (size_t i = 0; i < clients.size(); ++i) {
-		Packet packet;
-		for (size_t j = 0; j < clients.size(); ++j) {
-			if (i != j) {
-				Vector2f position = getPlayerPosition(j);
-				packet << position.x << position.y;
-			}
-		}
+	Packet packet;
+	packet << "PLAYER_POSITIONS";
+	for (const auto& position : playerPositions) {
+		packet << position.x << position.y;
+	}
 
-		if (clients[i]->send(packet) != Socket::Done) {
+	for (const auto& client : clients) {
+		if (client->send(packet) != Socket::Done) {
 			cerr << "Failed to send player positions to a client.\n";
 		}
 	}
 }
 
-// Get the position of a player by index (0 for first player, 1 for second player)
 Vector2f getPlayerPosition(int playerIndex) {
 	return playerPositions[playerIndex];
 }
-
 
 
 void handleErrors(Socket::Status status) {
@@ -210,99 +206,3 @@ void handleErrors(Socket::Status status) {
 		break;
 	}
 }
-
-
-
-
-
-///*****************************************************************************************************///
-
-//send updates about the rainbow ball to all players when it is spawned or despawned.
-//void loadRainbowBall(vector<unique_ptr<TcpSocket>>& clients) {
-//	Vector2f position(rand() % static_cast<int>(WINDOW_WIDTH - CIRCLE_RADIUS * 2),
-//		rand() % static_cast<int>(WINDOW_HEIGHT - CIRCLE_RADIUS * 2));
-//	Color color(rand() % 256, rand() % 256, rand() % 256);
-//	rainbowBall = { position, color };
-//	hasRainbowBall = true;
-//	spawnTime = ClockType::now();
-//
-//	Packet packet;
-//	packet << "SPAWN" << position.x << position.y
-//		<< static_cast<Uint8>(color.r) << static_cast<Uint8>(color.g) << static_cast<Uint8>(color.b);
-//
-//	for (const auto& client : clients) {
-//		if (client->send(packet) != Socket::Done) {
-//			cerr << "Failed to send spawn packet to a client.\n";
-//		}
-//	}
-//}
-//
-//void despawnRainbowBall(vector<unique_ptr<TcpSocket>>& clients) {
-//	hasRainbowBall = false;
-//	Packet packet;
-//	packet << "DESPAWN";
-//	for (const auto& client : clients) {
-//		if (client->send(packet) != Socket::Done) {
-//			cerr << "Failed to send despawn packet to a client.\n";
-//		}
-//	}
-//}
-//
-//// Continually update the positions of the players instead of sending it once
-//void sendPlayerPositions(vector<unique_ptr<TcpSocket>>& clients) {
-//	Packet packet;
-//	for (size_t i = 0; i < clients.size(); ++i) {
-//		packet.clear(); // Clear the packet for each client
-//		for (size_t j = 0; j < clients.size(); ++j) {
-//			if (i != j) { // Send only other players' positions
-//				Vector2f position = getPlayerPosition(j); // Get other player's position
-//				packet << position.x << position.y;
-//			}
-//		}
-//
-//		if (clients[i]->send(packet) != Socket::Done) {
-//			cerr << "Failed to send player positions to a client.\n";
-//		}
-//	}
-//}
-//
-////Each time a client sends its new position (based on mouse movement), the server should receive it and forward it to the other player(s).
-//void handlePlayerPosition(sf::TcpSocket& playerSocket) {
-//	// Receive position packet from one player
-//	sf::Packet packet;
-//	if (playerSocket.receive(packet) == sf::Socket::Done) {
-//		float x, y;
-//		packet >> x >> y;
-//		// Update player position based on received data
-//		updatePlayerPosition(playerSocket, x, y);
-//
-//		// Forward the new position to other players
-//		for (auto& clientSocket : clients) {
-//			if (clientSocket.get() != &playerSocket) {
-//				sf::Packet forwardPacket;
-//				forwardPacket << x << y;
-//				if (clientSocket->send(forwardPacket) != sf::Socket::Done) {
-//					cerr << "Failed to send position data to client: " << clientSocket->getRemoteAddress() << "\n";
-//				}
-//			}
-//		}
-//	}
-//}
-//
-//
-//// Update a player's position when a new position is received
-//void updatePlayerPosition(TcpSocket& playerSocket, float x, float y) {
-//	// Find the index of the player based on the socket
-//	size_t playerIndex = 0;
-//	for (size_t i = 0; i < clients.size(); ++i) {
-//		if (clients[i].get() == &playerSocket) {
-//			playerIndex = i;
-//			break;
-//		}
-//	}
-//
-//	// Update the position for the player
-//	playerPositions[playerIndex] = Vector2f(x, y);
-//}
-//
-//
