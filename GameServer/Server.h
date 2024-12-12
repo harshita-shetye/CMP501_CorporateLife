@@ -30,14 +30,40 @@ extern bool hasRainbowBall;               // Flag indicating if a rainbow ball e
 
 // Function declarations
 void SetupServer(unsigned short port);
-void loadRainbowBall(vector<unique_ptr<TcpSocket>>& clients);
-void despawnRainbowBall(vector<unique_ptr<TcpSocket>>& clients);
 void processNewClient(TcpListener& listener, SocketSelector& selector, vector<unique_ptr<TcpSocket>>& clients);
+void sendFullLobbyMessage(TcpListener& listener);
+void  notifyClientsOnConnection();
+
+
 void processClientData(TcpSocket& client, SocketSelector& selector, vector<unique_ptr<TcpSocket>>& clients, size_t clientIndex);
-void handleErrors(Socket::Status status);
+void handleDisconnection(TcpSocket& client, SocketSelector& selector, vector<unique_ptr<TcpSocket>>& clients, size_t index);
+
+
+
+void trySpawnRainbowBall();
+void spawnRainbowBall();
+void checkRainbowBallTimeout();
+void despawnRainbowBall(vector<unique_ptr<TcpSocket>>& clients);
+void broadcastToClients(Packet& packet);
+
+
 void sendPlayerPositions(vector<unique_ptr<TcpSocket>>& clients);
-void handlePlayerPosition(TcpSocket& playerSocket);
-void updatePlayerPosition(TcpSocket& playerSocket, float x, float y);
 Vector2f getPlayerPosition(int playerIndex);
+
+
+void handleErrors(Socket::Status status);
+
+
+
+
+
+
+
+//void loadRainbowBall(vector<unique_ptr<TcpSocket>>& clients);
+//void despawnRainbowBall(vector<unique_ptr<TcpSocket>>& clients);
+//void handlePlayerPosition(TcpSocket& playerSocket);
+//void updatePlayerPosition(TcpSocket& playerSocket, float x, float y);
+
+
 
 #endif // SERVER_H
