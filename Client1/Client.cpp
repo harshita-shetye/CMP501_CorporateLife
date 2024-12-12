@@ -1,10 +1,26 @@
 #include "Client.h"
 
-bool hasRainbowBall = false; // Flag to track if a rainbow ball is present
-GameState currentState = GameState::MainMenu;
-vector<Vector2f> playerPositions; // Store positions of players
+// Global variables
+bool hasRainbowBall = false;
+RenderWindow* window = nullptr; // Pointer to the game window
+TcpSocket socket;
+CircleShape playerShape(CIRCLE_RADIUS);
+vector<Vector2f> playerPositions;
+vector<Vector2f> rainbowPositions;
+vector<Color> rainbowColors;
+GameState currentState;
 
-void createMainMenu(RenderWindow*& window, TcpSocket& socket, CircleShape& playerShape, vector<Vector2f>& rainbowPositions, vector<Color>& rainbowColors) {
+// Function to attempt connecting to the server
+bool connectToServer(TcpSocket& socket) {
+	if (socket.connect(SERVER, PORT) != Socket::Done) {
+		cout << "Failed to connect to server!" << endl;
+		return false;
+	}
+	cout << "Connected to server." << endl;
+	return true;
+}
+
+void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 	// Main Menu Loop
 	while (true) { // Infinite loop controlled by states
 		if (currentState == GameState::MainMenu) {
@@ -46,6 +62,18 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket, CircleShape& playe
 			quitText.setPosition(quitButton.getPosition().x + quitButton.getSize().x / 2 - quitText.getGlobalBounds().width / 2,
 				quitButton.getPosition().y + quitButton.getSize().y / 2 - quitText.getGlobalBounds().height / 2);
 
+			// Handle mouse hover effect
+			Vector2i mousePos = Mouse::getPosition(*window);
+			bool playHovered = playButton.getGlobalBounds().contains(Vector2f(mousePos));
+			bool quitHovered = quitButton.getGlobalBounds().contains(Vector2f(mousePos));
+
+			// Change button color on hover
+			if (playHovered) playButton.setFillColor(Color(70, 130, 180)); // SteelBlue when hovered
+			else playButton.setFillColor(Color(100, 149, 237)); // Cornflower blue
+			if (quitHovered)quitButton.setFillColor(Color(255, 69, 0)); // Red-Orange when hovered
+			else quitButton.setFillColor(Color(178, 34, 34)); // Firebrick
+
+
 			// Draw the main menu UI
 			window->clear();
 			window->draw(title);
@@ -64,13 +92,11 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket, CircleShape& playe
 				}
 
 				if (event.type == Event::MouseButtonPressed) {
-					if (playButton.getGlobalBounds().contains(Vector2f(event.mouseButton.x, event.mouseButton.y))) {
-						// Attempt to connect to the server here
-						if (socket.getRemoteAddress() == sf::IpAddress::None) {
-							if (!connectToServer(socket)) {
-								cerr << "Failed to connect to server!" << endl;
-								continue; // Retry if connection fails
-							}
+					Vector2f mousePosition(event.mouseButton.x, event.mouseButton.y);
+					if (playButton.getGlobalBounds().contains(mousePosition)) {
+						if (socket.getRemoteAddress() == sf::IpAddress::None && !connectToServer(socket)) {
+							cerr << "Failed to connect to server!" << endl;
+							continue;
 						}
 
 						// Once connected, receive a message from the server
@@ -79,59 +105,29 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket, CircleShape& playe
 							string message;
 							packet >> message;
 
-							if (message == "Waiting for another player to connect...") {
-								currentState = GameState::WaitingForPlayer;  // Change to Waiting state
-								break;  // Exit the menu loop
-							}
-							else if (message == "Both players connected. Starting the game!") {
-								currentState = GameState::Playing; // Transition to playing
-								break;  // Exit the menu loop and start the game loop
-							}
+							currentState = (message == "Waiting for another player to connect...")
+								? GameState::WaitingForPlayer
+								: GameState::Playing;
+							break;
+
 						}
 					}
-
-					// Check if Quit button was clicked
-					else if (quitButton.getGlobalBounds().contains(Vector2f(event.mouseButton.x, event.mouseButton.y))) {
-						// Close the window when Quit button is clicked
+					else if (quitButton.getGlobalBounds().contains(mousePosition)) {
 						window->close();
 						return;
 					}
 				}
 			}
 		}
-
-		if (currentState == GameState::Playing) {
-			// Handle game state logic and transition here (starting game)
-			break; // Exit the menu loop and start the game
+		else if (currentState == GameState::WaitingForPlayer) {
+			displayWaitingMessage(*window);
+			handleWaitingState(window, socket);
 		}
-
-		if (currentState == GameState::WaitingForPlayer) {
-			// Handle waiting state UI
-			displayWaitingMessage(*window);  // Show waiting message for second player
+		else if (currentState == GameState::Playing) {
+			startGame(window, socket);
+			break;
 		}
 	}
-}
-
-void displayMainMenu(RenderWindow& window) {
-	// Create font
-	Font font;
-	if (!font.loadFromFile("path/to/font.ttf")) { // Specify the correct font path
-		std::cerr << "Error loading font!" << std::endl;
-		return;
-	}
-
-	// Create text for main menu
-	Text mainMenuText;
-	mainMenuText.setFont(font);
-	mainMenuText.setString("Welcome to the Game!\nClick Play to start.");
-	mainMenuText.setCharacterSize(30);
-	mainMenuText.setFillColor(Color::White);
-	mainMenuText.setPosition(window.getSize().x / 2 - mainMenuText.getGlobalBounds().width / 2, window.getSize().y / 2 - mainMenuText.getGlobalBounds().height / 2);
-
-	// Draw text on window
-	window.clear();
-	window.draw(mainMenuText);
-	window.display();
 }
 
 void displayWaitingMessage(RenderWindow& window) {
@@ -146,7 +142,6 @@ void displayWaitingMessage(RenderWindow& window) {
 	Text waitingText;
 	waitingText.setFont(font);
 	waitingText.setString("Waiting for player 2...");
-	waitingText.setCharacterSize(30); // Size of the text
 	waitingText.setFillColor(Color::White); // Text color
 	waitingText.setPosition(window.getSize().x / 2 - waitingText.getGlobalBounds().width / 2,
 		window.getSize().y / 2 - waitingText.getGlobalBounds().height / 2); // Center the text
@@ -157,39 +152,51 @@ void displayWaitingMessage(RenderWindow& window) {
 	window.display();
 }
 
-// Function to run the TCP client logic
-void runTcpClient(unsigned short PORT) {
-	TcpSocket socket;
+void handleWaitingState(RenderWindow* window, TcpSocket& socket) {
+	Event event;
+	while (window->pollEvent(event)) {
+		if (event.type == Event::Closed) {
+			window->close(); // Close the window when the user requests it
+			socket.disconnect(); // Disconnect from the server
+			return;
+		}
+	}
 
-	// Attempt to connect to the server
-	if (!connectToServer(socket)) return;
+	// Make socket non-blocking to prevent it from blocking the window
+	socket.setBlocking(false);
 
-	// Receive the initial spawn position for the player
-	float spawnPosX = 0, spawnPosY = 0;
-	if (!receiveInitialPosition(socket, spawnPosX, spawnPosY)) return;
-
-	// Setup the game window and player shape
-	RenderWindow window(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Corporate Life", Style::Default);
-	window.setVerticalSyncEnabled(true);
-	CircleShape playerShape(CIRCLE_RADIUS);
-	setupPlayerShape(playerShape, spawnPosX, spawnPosY);
-
-	// Containers to store rainbow positions and colors
-	vector<Vector2f> rainbowPositions;
-	vector<Color> rainbowColors;
-
-	// Enter the main game loop
-	gameLoop(window, socket, playerShape, rainbowPositions, rainbowColors);
+	// Try receiving a packet in a non-blocking manner
+	Packet packet;
+	if (socket.receive(packet) == Socket::Done) {
+		string message;
+		packet >> message;
+		if (message == "Both players connected. Starting the game!") {
+			currentState = GameState::Playing;
+		}
+	}
+	else if (socket.receive(packet) == Socket::NotReady) {
+		// No data available, continue handling other tasks (like events, drawing)
+		cout << "No data available from the server, still waiting...\n";
+	}
+	socket.setBlocking(true);  // Reset the socket to blocking mode when done
 }
 
-// Function to attempt connecting to the server
-bool connectToServer(TcpSocket& socket) {
-	if (socket.connect(SERVER, PORT) != Socket::Done) {
-		cout << "Failed to connect to server!" << endl;
-		return false;
+void startGame(RenderWindow*& window, TcpSocket& socket) {
+	float spawnX, spawnY;
+	if (!receiveInitialPosition(socket, spawnX, spawnY)) return;
+
+	delete window;
+	window = new RenderWindow(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Corporate Life", Style::Default);
+	window->setVerticalSyncEnabled(true);
+	if (!window) {
+		cerr << "Failed to create window for the game!" << endl;
+		return;
 	}
-	cout << "Connected to server." << endl;
-	return true;
+
+	setupPlayerShape(playerShape, spawnX, spawnY);
+	cout << "Player spawned at (" << spawnX << ", " << spawnY << ")" << endl;
+
+	gameLoop(*window, socket);
 }
 
 // Function to receive the initial position of the player from the server
@@ -206,38 +213,6 @@ bool receiveInitialPosition(TcpSocket& socket, float& x, float& y) {
 	}
 }
 
-// Function to receive player positions from the server
-bool receivePlayerPositions(TcpSocket& socket) {
-	Packet packet;
-	if (socket.receive(packet) != Socket::Done) {
-		return false;
-	}
-
-	// Clear previous player positions
-	playerPositions.clear();
-
-	// Extract player positions from the received packet
-	float x, y;
-	while (packet >> x >> y) {
-		playerPositions.push_back(Vector2f(x, y));
-	}
-	return true;
-}
-
-// Function to render all players, including local and remote
-void renderPlayers(RenderWindow& window, CircleShape& playerShape) {
-	// Render local player
-	window.draw(playerShape);
-
-	// Render remote players
-	for (const auto& pos : playerPositions) {
-		CircleShape otherPlayerShape(CIRCLE_RADIUS);
-		otherPlayerShape.setPosition(pos);
-		otherPlayerShape.setFillColor(Color::Green); // Color for other players
-		window.draw(otherPlayerShape);
-	}
-}
-
 // Function to setup the player's appearance and position
 void setupPlayerShape(CircleShape& playerShape, float x, float y) {
 	playerShape.setFillColor(Color(100, 250, 50));
@@ -247,13 +222,68 @@ void setupPlayerShape(CircleShape& playerShape, float x, float y) {
 }
 
 // Game loop where rendering happens
-void gameLoop(RenderWindow& window, TcpSocket& socket, CircleShape& playerShape, vector<Vector2f>& rainbowPositions, vector<Color>& rainbowColors) {
-	window.clear();
+void gameLoop(RenderWindow& window, TcpSocket& socket) {
+	while (window.isOpen()) {
+		Event event;
+		while (window.pollEvent(event)) {
+			if (event.type == Event::Closed) {
+				window.close();
+				return;
+			}
+		}
 
-	// Render all players
-	renderPlayers(window, playerShape);
+		// Send player position to the server
+		Packet packet;
+		packet << playerShape.getPosition().x << playerShape.getPosition().y;
+		cout << "Player Shape Sent: " << playerShape.getPosition().x << ", " << playerShape.getPosition().y << "\n";
+		socket.send(packet);
 
-	window.display();
+		// Update the game state (positions of other players)
+		receivePlayerPositions();
+
+		receiveRainbowData(socket, rainbowPositions, rainbowColors);  // Get rainbow data
+
+		window.clear();
+		renderPlayers(window);
+		drawRainbowBalls(window);
+		window.display();
+	}
+}
+
+// Receiving Player Positions
+void receivePlayerPositions() {
+	Packet packet;
+	if (socket.receive(packet) == Socket::Done) {
+		playerPositions.clear();
+		float x, y;
+		for (size_t i = 0; i < 2; ++i) {
+			packet >> x >> y;
+			cout << "Received Coordinates: " << x << ", " << y << "\n";
+			playerPositions.push_back(Vector2f(x, y));
+		}
+	}
+}
+
+// Function to render all players, including local and remote
+void renderPlayers(RenderWindow& window) {
+	window.draw(playerShape);
+	for (const auto& pos : playerPositions) {
+		CircleShape otherPlayer(CIRCLE_RADIUS);
+		otherPlayer.setPosition(pos);
+		otherPlayer.setFillColor(Color::Green);
+		window.draw(otherPlayer);
+		cout << "Player drawn: " << otherPlayer.getPosition().x << ", " << otherPlayer.getPosition().y << "\n";
+	}
+}
+
+void drawRainbowBalls(RenderWindow& window) {
+	for (size_t i = 0; i < rainbowPositions.size(); ++i) {
+		CircleShape rainbow(CIRCLE_RADIUS);
+		rainbow.setPosition(rainbowPositions[i]);
+		rainbow.setFillColor(rainbowColors[i]);
+		window.draw(rainbow);
+		cout << "Rainbow drawn: " << rainbow.getPosition().x << ", " << rainbow.getPosition().y << " - Colour: " << rainbow.getFillColor().r << ", " << rainbow.getFillColor().g << ", " << rainbow.getFillColor().b << "\n";
+	}
 }
 
 void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<Color>& colors) {
@@ -274,12 +304,12 @@ void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<C
 				<< static_cast<int>(r) << ", "
 				<< static_cast<int>(g) << ", "
 				<< static_cast<int>(b) << ").\n";
-			hasRainbowBall = true;
+			//hasRainbowBall = true;
 		}
 		else if (command == "DESPAWN") {
 			positions.clear();
 			colors.clear();
-			hasRainbowBall = false;
+			//hasRainbowBall = false;
 			cout << "Rainbow ball despawned.\n";
 		}
 	}
@@ -288,40 +318,5 @@ void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<C
 	}
 	else {
 		cerr << "Error receiving data from socket: " << status << endl;
-	}
-}
-
-// Function to draw the player and all rainbow balls in the scene
-void drawScene(RenderWindow& window, CircleShape& playerShape, const vector<Vector2f>& rainbowPositions, const vector<Color>& rainbowColors) {
-	// Draw the player
-	window.draw(playerShape);
-
-	// Draw all rainbow balls
-	CircleShape rainbowShape(RAINBOW_RADIUS);
-	for (size_t i = 0; i < rainbowPositions.size(); ++i) {
-		rainbowShape.setPosition(rainbowPositions[i]);
-		rainbowShape.setFillColor(rainbowColors[i]);
-		window.draw(rainbowShape);
-	}
-}
-
-// Provides error messages based on socket status
-static void handleErrors(Socket::Status status) {
-	switch (status) {
-	case Socket::NotReady:
-		cout << "The socket is not ready to send/receive data yet." << endl;
-		break;
-	case Socket::Partial:
-		cout << "The socket sent a part of the data." << endl;
-		break;
-	case Socket::Disconnected:
-		cout << "The TCP socket has been disconnected." << endl;
-		break;
-	case Socket::Error:
-		cout << "An unexpected error happened." << endl;
-		break;
-	default:
-		cout << "Unknown socket status." << endl;
-		break;
 	}
 }

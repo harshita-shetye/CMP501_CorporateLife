@@ -52,28 +52,25 @@ extern bool hasRainbowBall;
 // Function declarations
 
 // Main menu creation and management
-void createMainMenu(RenderWindow*& window, TcpSocket& socket, CircleShape& playerShape, vector<Vector2f>& rainbowPositions, vector<Color>& rainbowColors);
-void displayMainMenu(RenderWindow& window);
+void createMainMenu(RenderWindow*& window, TcpSocket& socket);
 void displayWaitingMessage(RenderWindow& window);
+void handleWaitingState(RenderWindow* window, TcpSocket& socket);
+void startGame(RenderWindow*& window, TcpSocket& socket);
 
 // TCP Client functions
-void runTcpClient(unsigned short PORT);
 bool connectToServer(TcpSocket& socket);
 bool receiveInitialPosition(TcpSocket& socket, float& x, float& y);
 
 // Player setup and game loop
 void setupPlayerShape(CircleShape& playerShape, float x, float y);
-bool receivePlayerPositions(TcpSocket& socket);
-void renderPlayers(RenderWindow& window, CircleShape& playerShape);
-void gameLoop(RenderWindow& window, TcpSocket& socket, CircleShape& playerShape, vector<Vector2f>& rainbowPositions, vector<Color>& rainbowColors);
+void renderPlayers(RenderWindow& window);
+void gameLoop(RenderWindow& window, TcpSocket& socket);
+void receivePlayerPositions();
 
 // Network data handling
 void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<Color>& colors);
-
-// Drawing the game scene
-void drawScene(RenderWindow& window, CircleShape& playerShape, const vector<Vector2f>& rainbowPositions, const vector<Color>& rainbowColors);
+void drawRainbowBalls(RenderWindow& window);
 
 // Error handling
-static void handleErrors(Socket::Status status);
 
 #endif

@@ -36,5 +36,8 @@ void processNewClient(TcpListener& listener, SocketSelector& selector, vector<un
 void processClientData(TcpSocket& client, SocketSelector& selector, vector<unique_ptr<TcpSocket>>& clients, size_t clientIndex);
 void handleErrors(Socket::Status status);
 void sendPlayerPositions(vector<unique_ptr<TcpSocket>>& clients);
+void handlePlayerPosition(TcpSocket& playerSocket);
+void updatePlayerPosition(TcpSocket& playerSocket, float x, float y);
+Vector2f getPlayerPosition(int playerIndex);
 
 #endif // SERVER_H
