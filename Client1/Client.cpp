@@ -5,12 +5,12 @@ bool hasRainbowBall = false;
 RenderWindow* window = nullptr; // Pointer to the game window
 TcpSocket socket;
 CircleShape playerShape(CIRCLE_RADIUS);
-vector<Vector2f> otherPlayerPositions;
+vector<Vector2f> allPlayerPositions(2);
 vector<Vector2f> rainbowPositions;
 vector<Color> rainbowColors;
 GameState currentState;
 unordered_map<int, Player> players;
-int playerID = 1;  // We'll assign a player ID when connecting to the server
+int playerID;
 
 
 // Function to attempt connecting to the server
@@ -204,8 +204,8 @@ bool receiveInitialPosition(TcpSocket& socket, float& x, float& y) {
 		positionPacket >> command;
 
 		if (command == "PLAYER_POSITIONS") {
-			positionPacket >> x >> y; // Now we extract the position after confirming the command
-			cout << "Received initial spawn position: (" << x << ", " << y << ")" << endl;
+			positionPacket >> playerID >> x >> y; // Now we extract the position after confirming the command
+			cout << "Received initial spawn position: (" << x << ", " << y << ") and ID: " << playerID << endl;
 			return true;
 		}
 		else {
@@ -300,13 +300,13 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		socket.send(packet); // Sending correctly
 
 		// Receive player positions and rainbow data from the server
-		receivePlayerPositions(socket, otherPlayerPositions);
+		receivePlayerPositions(socket, allPlayerPositions);
 		receiveRainbowData(socket, rainbowPositions, rainbowColors);
 
 		// Clear the window and render everything
 		window.clear();
 		renderPlayer(window, playerShape.getPosition().x, playerShape.getPosition().y);
-		renderOtherPlayers(window, otherPlayerPositions); // Render all players (local and remote)
+		renderAllPlayers(window, allPlayerPositions); // Render all players (local and remote)
 		drawRainbowBalls(window); // Draw the rainbow balls (if applicable)
 		window.display();
 	}
@@ -321,23 +321,26 @@ void sendPlayerPosition(TcpSocket& socket, const CircleShape& playerShape) {
 }
 
 // Function to receive player positions from the server
-void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& otherPlayerPositions) {
+void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositions) {
 	Packet packet;
 	if (socket.receive(packet) == Socket::Done) {
 		string command;
 		packet >> command;
 
 		if (command == "PLAYER_POSITIONS") {
-			otherPlayerPositions.clear();
-			for (size_t i = 0; i < 2; ++i) { //playerPositions // otherPlayerPositions.size()
+			//allPlayerPositions.clear();
+			for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
 				float x, y;
-				packet >> x >> y;
-				otherPlayerPositions.push_back(Vector2f(x, y));
+				int id;
+				packet >> id >> x >> y;
+				allPlayerPositions[id] = (Vector2f(x, y));
+				//allPlayerPositions.push_back(Vector2f(x, y));
 			}
 		}
 	}
 }
 
+// Local positions
 void renderPlayer(RenderWindow& window, float x, float y) {
 	// Set up the player's shape with the given position
 	playerShape.setRadius(CIRCLE_RADIUS);
@@ -348,19 +351,21 @@ void renderPlayer(RenderWindow& window, float x, float y) {
 	window.draw(playerShape);
 }
 
-// Function to render all players, including local and remote
-void renderOtherPlayers(RenderWindow& window, const vector<Vector2f>& otherPlayerPositions) {
+// Positions received from server for own and other players
+void renderAllPlayers(RenderWindow& window, const vector<Vector2f>& allPlayerPositions) {
 	CircleShape otherPlayerShape(CIRCLE_RADIUS);
 	otherPlayerShape.setFillColor(Color::Blue);
 	otherPlayerShape.setOutlineThickness(CIRCLE_BORDER);
 	otherPlayerShape.setOutlineColor(Color::White);
 
-	for (const auto& position : otherPlayerPositions) {
-		otherPlayerShape.setPosition(position);
-		window.draw(otherPlayerShape);
-		cout << "Drawn OTHER player: " << otherPlayerShape.getPosition().x << ", " << otherPlayerShape.getPosition().y;
+	// Iterate through all positions and render only if playerID matches
+	for (size_t i = 0; i < allPlayerPositions.size(); ++i) { // allPlayerPositions.size()
+		if (static_cast<int>(i) != playerID) {
+			otherPlayerShape.setPosition(allPlayerPositions[i]);
+			window.draw(otherPlayerShape);
+			cout << "Other player position :: " << allPlayerPositions[i].x << ", " << allPlayerPositions[i].y << "\n";
+		}
 	}
-
 }
 
 

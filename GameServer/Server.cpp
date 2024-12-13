@@ -114,10 +114,7 @@ void processClientData(TcpSocket& client, SocketSelector& selector, vector<uniqu
 			//	// Send update
 			//}
 
-
 			playerPositions[clientIndex] = Vector2f(x, y);
-			cout << "Updating position for client " << clientIndex
-				<< ": (" << x << ", " << y << ")\n";
 		}
 		else if (command == "DESPAWN") {
 			despawnRainbowBall(clients);
@@ -184,8 +181,10 @@ void broadcastToClients(Packet& packet) {
 void sendPlayerPositions(vector<unique_ptr<TcpSocket>>& clients) {
 	Packet packet;
 	packet << "PLAYER_POSITIONS";
-	for (const auto& position : playerPositions) {
-		packet << position.x << position.y;
+
+	// Player ID + positions
+	for (size_t i = 0; i < playerPositions.size(); ++i) {
+		packet << static_cast<int>(i) << playerPositions[i].x << playerPositions[i].y;
 	}
 
 	for (const auto& client : clients) {
@@ -193,10 +192,6 @@ void sendPlayerPositions(vector<unique_ptr<TcpSocket>>& clients) {
 			cerr << "Failed to send player positions to a client.\n";
 		}
 	}
-}
-
-Vector2f getPlayerPosition(int playerIndex) {
-	return playerPositions[playerIndex];
 }
 
 

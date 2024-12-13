@@ -68,7 +68,7 @@ void gameLoop(RenderWindow& window, TcpSocket& socket);
 void sendPlayerPosition(TcpSocket& socket, const CircleShape& playerShape);
 void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& otherPlayerPositions);
 void renderPlayer(RenderWindow& window, float x, float y);
-void renderOtherPlayers(RenderWindow& window, const vector<Vector2f>& otherPlayerPositions);
+void renderAllPlayers(RenderWindow& window, const vector<Vector2f>& otherPlayerPositions);
 
 
 // Network data handling
