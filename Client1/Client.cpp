@@ -1,16 +1,19 @@
 #include "Client.h"
 
 // Global variables
-bool hasRainbowBall = false;
-RenderWindow* window = nullptr; // Pointer to the game window
 TcpSocket socket;
+RenderWindow* window = nullptr; // Pointer to the game window
 CircleShape playerShape(CIRCLE_RADIUS);
-vector<Vector2f> allPlayerPositions(2);
-vector<Vector2f> rainbowPositions;
-vector<Color> rainbowColors;
-GameState currentState;
 unordered_map<int, Player> players;
-int playerID;
+int playerID = -1;
+GameState currentState = GameState::MainMenu;
+
+bool hasRainbowBall = false;
+Vector2f rainbowPosition;
+Color rainbowColor;
+
+
+vector<Vector2f> allPlayerPositions(2);
 
 
 // Function to attempt connecting to the server
@@ -204,9 +207,11 @@ bool receiveInitialPosition(TcpSocket& socket, float& x, float& y) {
 		positionPacket >> command;
 
 		if (command == "PLAYER_POSITIONS") {
-			positionPacket >> playerID >> x >> y; // Now we extract the position after confirming the command
-			cout << "Received initial spawn position: (" << x << ", " << y << ") and ID: " << playerID << endl;
-			return true;
+			while (!positionPacket.endOfPacket()) {
+				positionPacket >> playerID >> x >> y; // Now we extract the position after confirming the command
+				cout << "Player ID :: Position :: " << playerID << " :: " << x << ", " << y << endl;
+				return true;
+			}
 		}
 		else {
 			cout << "Received unexpected command: " << command << endl;
@@ -320,7 +325,7 @@ void sendPlayerPosition(TcpSocket& socket, const CircleShape& playerShape) {
 	}
 }
 
-// Function to receive player positions from the server
+// Receive Player ID + Player Position from server
 void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositions) {
 	Packet packet;
 	if (socket.receive(packet) == Socket::Done) {
@@ -328,13 +333,15 @@ void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositi
 		packet >> command;
 
 		if (command == "PLAYER_POSITIONS") {
-			//allPlayerPositions.clear();
+			allPlayerPositions.clear();
 			for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
 				float x, y;
 				int id;
-				packet >> id >> x >> y;
-				allPlayerPositions[id] = (Vector2f(x, y));
-				//allPlayerPositions.push_back(Vector2f(x, y));
+				while (!packet.endOfPacket()) {
+					packet >> id >> x >> y;
+					allPlayerPositions[id] = (Vector2f(x, y));
+					cout << "Player ID :: Position :: " << id << " :: " << x << ", " << y << endl;
+				}
 			}
 		}
 	}
@@ -351,7 +358,7 @@ void renderPlayer(RenderWindow& window, float x, float y) {
 	window.draw(playerShape);
 }
 
-// Positions received from server for own and other players
+// Draw positions received from server for own and other players
 void renderAllPlayers(RenderWindow& window, const vector<Vector2f>& allPlayerPositions) {
 	CircleShape otherPlayerShape(CIRCLE_RADIUS);
 	otherPlayerShape.setFillColor(Color::Blue);
@@ -363,7 +370,6 @@ void renderAllPlayers(RenderWindow& window, const vector<Vector2f>& allPlayerPos
 		if (static_cast<int>(i) != playerID) {
 			otherPlayerShape.setPosition(allPlayerPositions[i]);
 			window.draw(otherPlayerShape);
-			cout << "Other player position :: " << allPlayerPositions[i].x << ", " << allPlayerPositions[i].y << "\n";
 		}
 	}
 }

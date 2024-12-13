@@ -1,17 +1,23 @@
 #include "Server.h"
 
+struct ClientData {
+	unique_ptr<TcpSocket> socket;
+	Vector2f position;
+	int ID;
+};
+vector<ClientData> clientData;
+
 // Global variables
 TcpListener listener;
 SocketSelector selector;
-vector<unique_ptr<TcpSocket>> clients;
-vector<Vector2f> playerPositions(2);
+static Clock ticker;
+bool running = true;
+bool bothPlayersConnected = false;
+
+bool hasRainbowBall = false;
 pair<Vector2f, Color> rainbowBall;
 ClockType::time_point spawnTime;
 ClockType::time_point lastSpawnAttempt = ClockType::now();
-static Clock ticker;
-bool running = true;
-bool hasRainbowBall = false;
-bool bothPlayersConnected = false; // Track if both players are connected
 
 
 void SetupServer(unsigned short port) {
@@ -26,19 +32,19 @@ void SetupServer(unsigned short port) {
 	while (running) {
 		if (selector.wait(milliseconds(10))) {
 			if (selector.isReady(listener)) {
-				processNewClient(listener, selector, clients);
+				processNewClient(listener, selector);
 			}
 
-			for (size_t i = 0; i < clients.size(); ++i) {
-				if (selector.isReady(*clients[i])) {
-					processClientData(*clients[i], selector, clients, i);
+			for (size_t i = 0; i < clientData.size(); ++i) {
+				if (selector.isReady(*clientData[i].socket)) {
+					processClientData(*clientData[i].socket, i);
 				}
 			}
 		}
 
 		if (bothPlayersConnected) {
 			if (ticker.getElapsedTime().asMilliseconds() > 20) {
-				sendPlayerPositions(clients);
+				sendPlayerPositions();
 				ticker.restart();
 			}
 			if (!hasRainbowBall) trySpawnRainbowBall();
@@ -49,17 +55,24 @@ void SetupServer(unsigned short port) {
 	cout << "Shutting down the server.\n";
 }
 
-void processNewClient(TcpListener& listener, SocketSelector& selector, vector<unique_ptr<TcpSocket>>& clients) {
-	if (clients.size() >= 2) {
+void processNewClient(TcpListener& listener, SocketSelector& selector) {
+	if (clientData.size() >= 2) {
 		sendFullLobbyMessage(listener);
 		return;
 	}
 
 	auto newClient = make_unique<TcpSocket>();
 	if (listener.accept(*newClient) == Socket::Done) {
-		cout << "New client connected: " << newClient->getRemoteAddress() << "\n";
 		selector.add(*newClient);
-		clients.push_back(std::move(newClient));
+
+		ClientData newClientData;
+		newClientData.socket = std::move(newClient);
+		newClientData.ID = static_cast<int>(clientData.size()); // Assign a unique ID
+		newClientData.position = { 0.0f, 0.0f }; // Default position
+		clientData.push_back(std::move(newClientData));
+
+		cout << "New client connected: " << clientData.back().socket->getRemoteAddress() << "\n";
+
 		notifyClientsOnConnection();
 	}
 }
@@ -76,19 +89,19 @@ void sendFullLobbyMessage(TcpListener& listener) {
 
 void notifyClientsOnConnection() {
 	// If there is only 1 player, inform them they're waiting for another player
-	if (clients.size() == 1) {
+	if (clientData.size() == 1) {
 		// Notify the first player that they're waiting for the second player
 		Packet packet;
 		packet << "Waiting for another player to connect...";
-		clients[0]->send(packet);
+		clientData[0].socket->send(packet);
 	}
 
 	// If both players are connected, notify both to start the game
-	if (clients.size() == 2) {
+	if (clientData.size() == 2) {
 		Packet startPacket;
 		startPacket << "Both players connected. Starting the game!";
-		for (const auto& client : clients) {
-			if (client->send(startPacket) != Socket::Done) {
+		for (const auto& client : clientData) {
+			if (client.socket->send(startPacket) != Socket::Done) {
 				cerr << "Failed to send start game packet to a client.\n";
 			}
 		}
@@ -97,7 +110,7 @@ void notifyClientsOnConnection() {
 }
 
 
-void processClientData(TcpSocket& client, SocketSelector& selector, vector<unique_ptr<TcpSocket>>& clients, size_t clientIndex) {
+void processClientData(TcpSocket& client, size_t clientIndex) {
 	Packet packet;
 	auto status = client.receive(packet);
 
@@ -114,25 +127,25 @@ void processClientData(TcpSocket& client, SocketSelector& selector, vector<uniqu
 			//	// Send update
 			//}
 
-			playerPositions[clientIndex] = Vector2f(x, y);
+			clientData[clientIndex].position = { x, y };
 		}
 		else if (command == "DESPAWN") {
-			despawnRainbowBall(clients);
+			despawnRainbowBall();
 		}
 	}
 	else if (status == Socket::Disconnected) {
-		handleDisconnection(client, selector, clients, clientIndex);
+		handleDisconnection(clientIndex);
 	}
 	else {
 		handleErrors(status);
 	}
 }
 
-void handleDisconnection(TcpSocket& client, SocketSelector& selector, vector<unique_ptr<TcpSocket>>& clients, size_t index) {
-	cout << "Client disconnected: " << client.getRemoteAddress() << "\n";
-	selector.remove(client);
-	clients.erase(clients.begin() + index);
-	bothPlayersConnected = (clients.size() == 2);
+void handleDisconnection(size_t index) {
+	cout << "Client disconnected: " << clientData[index].socket->getRemoteAddress() << "\n";
+	selector.remove(*clientData[index].socket);
+	clientData.erase(clientData.begin() + index);
+	bothPlayersConnected = (clientData.size() == 2);
 }
 
 
@@ -144,8 +157,7 @@ void trySpawnRainbowBall() {
 }
 
 void spawnRainbowBall() {
-	Vector2f position(rand() % static_cast<int>(WINDOW_WIDTH - CIRCLE_RADIUS * 2),
-		rand() % static_cast<int>(WINDOW_HEIGHT - CIRCLE_RADIUS * 2));
+	Vector2f position(rand() % static_cast<int>(WINDOW_WIDTH - CIRCLE_RADIUS * 2), rand() % static_cast<int>(WINDOW_HEIGHT - CIRCLE_RADIUS * 2));
 	Color color(rand() % 256, rand() % 256, rand() % 256);
 	rainbowBall = { position, color };
 	hasRainbowBall = true;
@@ -158,11 +170,11 @@ void spawnRainbowBall() {
 
 void checkRainbowBallTimeout() {
 	if (chrono::duration_cast<chrono::seconds>(ClockType::now() - spawnTime).count() >= 5) {
-		despawnRainbowBall(clients);
+		despawnRainbowBall();
 	}
 }
 
-void despawnRainbowBall(vector<unique_ptr<TcpSocket>>& clients) {
+void despawnRainbowBall() {
 	hasRainbowBall = false;
 	Packet packet;
 	packet << "DESPAWN";
@@ -170,25 +182,25 @@ void despawnRainbowBall(vector<unique_ptr<TcpSocket>>& clients) {
 }
 
 void broadcastToClients(Packet& packet) {
-	for (const auto& client : clients) {
-		if (client->send(packet) != Socket::Done) {
+	for (const auto& client : clientData) {
+		if (client.socket->send(packet) != Socket::Done) {
 			cerr << "Failed to send packet to a client.\n";
 		}
 	}
 }
 
 
-void sendPlayerPositions(vector<unique_ptr<TcpSocket>>& clients) {
+void sendPlayerPositions() {
 	Packet packet;
 	packet << "PLAYER_POSITIONS";
 
 	// Player ID + positions
-	for (size_t i = 0; i < playerPositions.size(); ++i) {
-		packet << static_cast<int>(i) << playerPositions[i].x << playerPositions[i].y;
+	for (const auto& client : clientData) {
+		packet << client.ID << client.position.x << client.position.y;
 	}
 
-	for (const auto& client : clients) {
-		if (client->send(packet) != Socket::Done) {
+	for (auto& client : clientData) {
+		if (client.socket->send(packet) != Socket::Done) {
 			cerr << "Failed to send player positions to a client.\n";
 		}
 	}

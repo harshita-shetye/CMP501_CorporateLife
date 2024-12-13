@@ -1,6 +1,4 @@
-#include "server.h"
-#include <cstdlib>
-#include <ctime>
+#include "Server.h"
 
 int main() {
 	srand(static_cast<unsigned int>(time(nullptr))); // Seed for random number generation
