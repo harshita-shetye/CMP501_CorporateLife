@@ -71,7 +71,7 @@ void processNewClient(TcpListener& listener, SocketSelector& selector) {
 		newClientData.position = { 0.0f, 0.0f }; // Default position
 		clientData.push_back(std::move(newClientData));
 
-		cout << "New client connected: " << clientData.back().socket->getRemoteAddress() << "\n";
+		cout << "New Client ID " << newClientData.ID << " connected: " << clientData.back().socket->getRemoteAddress() << "\n";
 
 		notifyClientsOnConnection();
 	}
@@ -100,6 +100,7 @@ void notifyClientsOnConnection() {
 	if (clientData.size() == 2) {
 		Packet startPacket;
 		startPacket << "Both players connected. Starting the game!";
+
 		for (const auto& client : clientData) {
 			if (client.socket->send(startPacket) != Socket::Done) {
 				cerr << "Failed to send start game packet to a client.\n";
@@ -197,6 +198,7 @@ void sendPlayerPositions() {
 	// Player ID + positions
 	for (const auto& client : clientData) {
 		packet << client.ID << client.position.x << client.position.y;
+		cout << "Send for ID " << client.ID << " " << client.position.x << ", " << client.position.y << endl;
 	}
 
 	for (auto& client : clientData) {

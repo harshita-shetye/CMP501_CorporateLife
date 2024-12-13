@@ -9,14 +9,13 @@ int playerID = -1;
 GameState currentState = GameState::MainMenu;
 
 bool hasRainbowBall = false;
-Vector2f rainbowPosition;
-Color rainbowColor;
-
+vector<Vector2f> rainbowPositions;
+vector<Color> rainbowColors;
 
 vector<Vector2f> allPlayerPositions(2);
 
 
-// Function to attempt connecting to the server
+// Connect to the server
 bool connectToServer(TcpSocket& socket) {
 	// Try to connect to the server
 	if (socket.connect(SERVER, PORT) != Socket::Done) {
@@ -26,9 +25,8 @@ bool connectToServer(TcpSocket& socket) {
 	return true;
 }
 
-// Function to setup the player's appearance and position
+// Configure player's shape
 void setupPlayerShape(CircleShape& playerShape, float x, float y) {
-	// Set up the player's shape with the given position
 	playerShape.setRadius(CIRCLE_RADIUS);
 	playerShape.setFillColor(Color::Green);
 	playerShape.setOutlineThickness(CIRCLE_BORDER);
@@ -36,9 +34,10 @@ void setupPlayerShape(CircleShape& playerShape, float x, float y) {
 	playerShape.setPosition(x, y);
 }
 
+// Create and display the main menu
 void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 	// Main Menu Loop
-	while (true) { // Infinite loop controlled by states
+	while (true) {
 		if (currentState == GameState::MainMenu) {
 			// Check if the window is already created or create a new one
 			if (!window) {
@@ -46,20 +45,19 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 				window->setVerticalSyncEnabled(true);
 			}
 
-			// Load font for the UI
+			// Load the font
 			Font font;
 			if (!font.loadFromFile("res/comic.ttf")) {
 				cerr << "Failed to load font!" << endl;
 				return;
 			}
 
-			// Title
+			// Create UI elements
 			Text title("Corporate Life", font, 50);
 			title.setFillColor(Color(255, 215, 0)); // Gold color
 			title.setStyle(Text::Bold | Text::Underlined);
 			title.setPosition(window->getSize().x / 2 - title.getGlobalBounds().width / 2, 50);
 
-			// Buttons
 			RectangleShape playButton(Vector2f(200, 50));
 			playButton.setPosition(window->getSize().x / 2 - 100, 150);
 			playButton.setFillColor(Color(100, 149, 237)); // Cornflower blue
@@ -207,11 +205,8 @@ bool receiveInitialPosition(TcpSocket& socket, float& x, float& y) {
 		positionPacket >> command;
 
 		if (command == "PLAYER_POSITIONS") {
-			while (!positionPacket.endOfPacket()) {
-				positionPacket >> playerID >> x >> y; // Now we extract the position after confirming the command
-				cout << "Player ID :: Position :: " << playerID << " :: " << x << ", " << y << endl;
-				return true;
-			}
+			positionPacket >> playerID >> x >> y; // Now we extract the position after confirming the command
+			return true;
 		}
 		else {
 			cout << "Received unexpected command: " << command << endl;
@@ -240,7 +235,7 @@ void startGame(RenderWindow*& window, TcpSocket& socket) {
 
 	// Setup player shape with initial position from server
 	setupPlayerShape(playerShape, spawnX, spawnY);
-	cout << "Player spawned at (" << spawnX << ", " << spawnY << ")" << endl;
+	cout << "Player " << playerID << " spawned at(" << spawnX << ", " << spawnY << ")" << endl;
 
 	// Start game loop
 	gameLoop(*window, socket);
@@ -284,8 +279,6 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 			playerShape.move(direction * moveSpeed * deltaTime);
 		}
 
-
-
 		// Clamp the player's position within the window bounds
 		Vector2f position = playerShape.getPosition();
 		float radius = playerShape.getRadius();
@@ -298,7 +291,6 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		// Send updated position to the server
 		sendPlayerPosition(socket, playerShape);
 
-
 		// Send updated player position to the server
 		sf::Packet packet;
 		packet << playerShape.getPosition().x << playerShape.getPosition().y;
@@ -308,9 +300,13 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		receivePlayerPositions(socket, allPlayerPositions);
 		receiveRainbowData(socket, rainbowPositions, rainbowColors);
 
+		for (const auto& position : allPlayerPositions) {
+
+			cout << "All Player Positions: (" << position.x << ", " << position.y << ")" << std::endl;
+		}
+
 		// Clear the window and render everything
 		window.clear();
-		renderPlayer(window, playerShape.getPosition().x, playerShape.getPosition().y);
 		renderAllPlayers(window, allPlayerPositions); // Render all players (local and remote)
 		drawRainbowBalls(window); // Draw the rainbow balls (if applicable)
 		window.display();
@@ -333,15 +329,14 @@ void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositi
 		packet >> command;
 
 		if (command == "PLAYER_POSITIONS") {
-			allPlayerPositions.clear();
+			//allPlayerPositions.clear();
 			for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
 				float x, y;
 				int id;
-				while (!packet.endOfPacket()) {
-					packet >> id >> x >> y;
-					allPlayerPositions[id] = (Vector2f(x, y));
-					cout << "Player ID :: Position :: " << id << " :: " << x << ", " << y << endl;
-				}
+
+				packet >> id >> x >> y;
+				allPlayerPositions[id] = (Vector2f(x, y));
+				cout << "Received Player ID + Position :: " << id << " :: " << x << ", " << y << endl;
 			}
 		}
 	}
@@ -366,10 +361,13 @@ void renderAllPlayers(RenderWindow& window, const vector<Vector2f>& allPlayerPos
 	otherPlayerShape.setOutlineColor(Color::White);
 
 	// Iterate through all positions and render only if playerID matches
-	for (size_t i = 0; i < allPlayerPositions.size(); ++i) { // allPlayerPositions.size()
+	for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
 		if (static_cast<int>(i) != playerID) {
 			otherPlayerShape.setPosition(allPlayerPositions[i]);
-			window.draw(otherPlayerShape);
+			window.draw(otherPlayerShape); // Loads opponent
+		}
+		else {
+			renderPlayer(window, allPlayerPositions[i].x, allPlayerPositions[i].y); // Loads self
 		}
 	}
 }
