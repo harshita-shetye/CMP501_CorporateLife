@@ -62,17 +62,19 @@ bool connectToServer(TcpSocket& socket);
 bool receiveInitialPosition(TcpSocket& socket, float& x, float& y);
 
 // Player setup and game loop
-void setupPlayerShape(CircleShape& playerShape, float x, float y);
-
 void gameLoop(RenderWindow& window, TcpSocket& socket);
-void sendPlayerPosition(TcpSocket& socket, const CircleShape& playerShape);
-void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& otherPlayerPositions);
-void renderPlayer(RenderWindow& window, float x, float y);
-void renderAllPlayers(RenderWindow& window, const vector<Vector2f>& otherPlayerPositions);
 
+// Send/Receieve positions for players and rainbow ball
+void sendPlayerPosition(TcpSocket& socket, const CircleShape& predictedPlayerShape, Vector2f moveSpeed);
+void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& otherPlayerPositions, Packet packet);
+void receiveRainbowData(vector<Vector2f>& positions, vector<Color>& colors, Packet packet);
 
-// Network data handling
-void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<Color>& colors);
+// Drawing logic
+void renderActualSelf(RenderWindow& window, float x, float y);
+void renderPredictedSelf(RenderWindow& window, float x, float y);
+void renderReceivedShapes(RenderWindow& window, const vector<Vector2f>& otherPlayerPositions);
+
+void deleteRainbowData(vector<Vector2f>& positions, vector<Color>& colors);
 void drawRainbowBalls(RenderWindow& window);
 
 // Error handling

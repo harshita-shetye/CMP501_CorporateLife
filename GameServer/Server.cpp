@@ -7,7 +7,9 @@ struct ClientData {
 
 	// For prediction
 	Vector2f velocity;
+	Vector2f acceleration;
 	Clock lastUpdateTime;
+	Clock lastReceivedUpdate; // If updates from a client are delayed or lost, rely on predictions for a limited time before freezing their position to avoid erratic behavior.
 };
 vector<ClientData> clientData;
 
@@ -22,6 +24,8 @@ bool hasRainbowBall = false;
 pair<Vector2f, Color> rainbowBall;
 ClockType::time_point spawnTime;
 ClockType::time_point lastSpawnAttempt = ClockType::now();
+float smoothingFactor = 0.8f; // Apply a smoothing factor when updating velocities to reduce sudden changes caused by small inaccuracies or lag.
+float dampingFactor = 0.95f; // Apply a damping factor to slow down abrupt velocity changes.
 
 
 void SetupServer(unsigned short port) {
@@ -129,29 +133,29 @@ void processClientData(TcpSocket& client, size_t clientIndex) {
 		packet >> command;
 
 		if (command == "UPDATE_POSITION") {
-			float x, y;
-			packet >> x >> y;
+			float x, y, moveX, moveY;
+			packet >> x >> y >> moveX >> moveY;
 
 			auto& clientRef = clientData[clientIndex];
 			Vector2f newPosition = { x, y };
+			Vector2f movementVector = { moveX, moveY };
 			Time elapsed = clientRef.lastUpdateTime.getElapsedTime();
 			clientRef.lastUpdateTime.restart();
 
 			if (elapsed.asSeconds() > 0) {
-				clientRef.velocity = (newPosition - clientRef.position) / elapsed.asSeconds();
+				Vector2f newVelocity = movementVector / elapsed.asSeconds();
+				clientRef.acceleration = (newVelocity - clientRef.velocity) / elapsed.asSeconds();
+				clientRef.velocity = smoothingFactor * clientRef.velocity + (1.0f - smoothingFactor) * newVelocity;
+				clientRef.velocity *= dampingFactor;
 			}
 			else {
 				cout << "No movement detected from Client " << clientIndex;
-				clientRef.velocity = { 0.0f, 0.0f }; // No movement detected
+				clientRef.velocity = { 0.0f, 0.0f };
+				clientRef.acceleration = { 0.0f, 0.0f };
 			}
 
 			clientRef.position = newPosition;
-
-
 			clientData[clientIndex].position = { x, y };
-		}
-		else if (command == "DESPAWN") {
-			despawnRainbowBall();
 		}
 	}
 	else if (status == Socket::Disconnected) {
@@ -169,15 +173,37 @@ void handleDisconnection(size_t index) {
 	bothPlayersConnected = (clientData.size() == 2);
 }
 
+// Send the current player positions (predicted)
 void sendPlayerPositions() {
 	Packet packet;
 	packet << "PLAYER_POSITIONS";
+	Vector2f predictedPosition;
 
 	// Player ID + positions
 	for (const auto& client : clientData) {
 		// Predict the next position
 		Time elapsed = ticker.getElapsedTime();
-		Vector2f predictedPosition = client.position + (client.velocity * elapsed.asSeconds());
+		float elapsedSeconds = std::min(elapsed.asSeconds(), 0.2f); // Cap extrapolation to 200 ms. Prevent predictions from drifting too far if updates are delayed. Define a maximum extrapolation time (e.g., 200 ms).
+
+		// Predict using velocity and acceleration. Before sending predicted positions, check if the last update was recent.
+		if (client.lastReceivedUpdate.getElapsedTime().asSeconds() > 1.0f) {
+			// Prediction using velocity and acceleration
+			predictedPosition += (client.velocity * elapsedSeconds)
+				+ (0.5f * client.acceleration * elapsedSeconds * elapsedSeconds);
+		}
+		else {
+			// Send last known position if updates are too old
+			//predictedPosition += movementVector * elapsedSeconds; // or use velocity to predict
+			packet << client.ID << client.position.x << client.position.y;
+		}
+		//Apply smoothing to reduce jitter
+		predictedPosition = smoothingFactor * client.position + (1.0f - smoothingFactor) * predictedPosition;
+
+		float maxDrift = 50.f; // Maximum allowable drift
+		if (std::abs(predictedPosition.x - client.position.x) > maxDrift ||
+			std::abs(predictedPosition.y - client.position.y) > maxDrift) {
+			predictedPosition = client.position; // Revert to last known position
+		}
 
 		packet << client.ID << predictedPosition.x << predictedPosition.y;
 		//cout << "Send for ID " << client.ID << " Predicted: " << predictedPosition.x << ", " << predictedPosition.y << endl;
