@@ -14,6 +14,9 @@ vector<Color> rainbowColors;
 
 vector<Vector2f> allPlayerPositions(2);
 
+Clock sendTimer; // Add this clock at the beginning of the game loop or as a global variable.
+float sendInterval = 0.1f; // Time interval in seconds (e.g., 100 ms)
+
 
 // Connect to the server
 bool connectToServer(TcpSocket& socket) {
@@ -287,27 +290,16 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		position.y = std::max(0.f, std::min(position.y, window.getSize().y - 2 * radius));
 		playerShape.setPosition(position);
 
+		Packet receivedPacket;
 
-		// Send updated position to the server
 		sendPlayerPosition(socket, playerShape);
-
-		// Send updated player position to the server
-		sf::Packet packet;
-		packet << playerShape.getPosition().x << playerShape.getPosition().y;
-		socket.send(packet); // Sending correctly
-
-		// Receive player positions and rainbow data from the server
 		receivePlayerPositions(socket, allPlayerPositions);
 		receiveRainbowData(socket, rainbowPositions, rainbowColors);
 
-		/*for (const auto& position : allPlayerPositions) {
-			cout << "All Player Positions: (" << position.x << ", " << position.y << ")" << std::endl;
-		}*/
-
 		// Clear the window and render everything
 		window.clear();
-		renderAllPlayers(window, allPlayerPositions); // Render all players (local and remote)
-		drawRainbowBalls(window); // Draw the rainbow balls (if applicable)
+		renderAllPlayers(window, allPlayerPositions);
+		drawRainbowBalls(window);
 		window.display();
 	}
 }
@@ -341,6 +333,36 @@ void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositi
 	}
 }
 
+void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<Color>& colors) {
+	Packet receivedPacket;
+	Socket::Status status = socket.receive(receivedPacket);
+	if (status == Socket::Done) {
+		string command;
+		receivedPacket >> command;
+
+		if (command == "SPAWN") {
+			float x, y, spawnTime;
+			Uint8 r, g, b;
+			receivedPacket >> x >> y >> r >> g >> b >> spawnTime;
+			positions.push_back(Vector2f(x, y));
+			colors.push_back(Color(r, g, b));
+			cout << "Rainbow received: " << x << ", " << y << " with spawn time: " << spawnTime << " seconds.\n";
+		}
+		else if (command == "DESPAWN") {
+			positions.clear();
+			colors.clear();
+			cout << "Cleared rainbows\n";
+		}
+	}
+	else {
+		cerr << "Error receiving data from socket: " << status << endl;
+	}
+}
+
+
+
+
+
 // Local positions
 void renderPlayer(RenderWindow& window, float x, float y) {
 	// Set up the player's shape with the given position
@@ -371,39 +393,11 @@ void renderAllPlayers(RenderWindow& window, const vector<Vector2f>& allPlayerPos
 	}
 }
 
-
 void drawRainbowBalls(RenderWindow& window) {
 	for (size_t i = 0; i < rainbowPositions.size(); ++i) {
 		CircleShape rainbow(RAINBOW_RADIUS);
 		rainbow.setPosition(rainbowPositions[i]);
 		rainbow.setFillColor(rainbowColors[i]);
 		window.draw(rainbow);
-	}
-}
-
-void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<Color>& colors) {
-	Packet receivedPacket;
-	Socket::Status status = socket.receive(receivedPacket);
-
-	if (status == Socket::Done) {
-		string command;
-		receivedPacket >> command;
-
-		if (command == "SPAWN") {
-			float x, y, spawnTime;
-			Uint8 r, g, b;
-			receivedPacket >> x >> y >> r >> g >> b >> spawnTime;
-			positions.push_back(Vector2f(x, y));
-			colors.push_back(Color(r, g, b));
-			cout << "Rainbow received: " << x << ", " << y << " with spawn time: " << spawnTime << " seconds.\n";
-		}
-		else if (command == "DESPAWN") {
-			positions.clear();
-			colors.clear();
-			cout << "Cleared rainbows\n";
-		}
-	}
-	else {
-		cerr << "Error receiving data from socket: " << status << endl;
 	}
 }

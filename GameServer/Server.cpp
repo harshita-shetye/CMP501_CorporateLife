@@ -59,6 +59,9 @@ void SetupServer(unsigned short port) {
 	cout << "Shutting down the server.\n";
 }
 
+
+//******* Initial Connection Logic *******//
+
 void processNewClient(TcpListener& listener, SocketSelector& selector) {
 	if (clientData.size() >= 2) {
 		sendFullLobbyMessage(listener);
@@ -115,6 +118,8 @@ void notifyClientsOnConnection() {
 }
 
 
+//******* Current Clients Logic *******//
+
 void processClientData(TcpSocket& client, size_t clientIndex) {
 	Packet packet;
 	auto status = client.receive(packet);
@@ -164,6 +169,30 @@ void handleDisconnection(size_t index) {
 	bothPlayersConnected = (clientData.size() == 2);
 }
 
+void sendPlayerPositions() {
+	Packet packet;
+	packet << "PLAYER_POSITIONS";
+
+	// Player ID + positions
+	for (const auto& client : clientData) {
+		// Predict the next position
+		Time elapsed = ticker.getElapsedTime();
+		Vector2f predictedPosition = client.position + (client.velocity * elapsed.asSeconds());
+
+		packet << client.ID << predictedPosition.x << predictedPosition.y;
+		//cout << "Send for ID " << client.ID << " Predicted: " << predictedPosition.x << ", " << predictedPosition.y << endl;
+	}
+
+	for (auto& client : clientData) {
+		if (client.socket->send(packet) != Socket::Done) {
+			cerr << "Failed to send player positions to a client.\n";
+		}
+	}
+}
+
+
+
+//******* Rainbow Logic *******//
 
 void trySpawnRainbowBall() {
 	if (chrono::duration_cast<chrono::seconds>(ClockType::now() - lastSpawnAttempt).count() >= 5) {
@@ -213,27 +242,7 @@ void broadcastToClients(Packet& packet) {
 }
 
 
-void sendPlayerPositions() {
-	Packet packet;
-	packet << "PLAYER_POSITIONS";
-
-	// Player ID + positions
-	for (const auto& client : clientData) {
-		// Predict the next position
-		Time elapsed = ticker.getElapsedTime();
-		Vector2f predictedPosition = client.position + (client.velocity * elapsed.asSeconds());
-
-		packet << client.ID << predictedPosition.x << predictedPosition.y;
-		//cout << "Send for ID " << client.ID << " Predicted: " << predictedPosition.x << ", " << predictedPosition.y << endl;
-	}
-
-	for (auto& client : clientData) {
-		if (client.socket->send(packet) != Socket::Done) {
-			cerr << "Failed to send player positions to a client.\n";
-		}
-	}
-}
-
+//******* Handle Errors *******//
 
 void handleErrors(Socket::Status status) {
 	switch (status) {
