@@ -349,28 +349,28 @@ void deleteRainbowData(vector<Vector2f>& positions, vector<Color>& colors) {
 void renderActualSelf(RenderWindow& window, float x, float y) {
 	// Set up the player's shape with the given position
 	actualPlayerShape.setRadius(CIRCLE_RADIUS);
-	actualPlayerShape.setFillColor(Color(0, 255, 0, 128));
+	actualPlayerShape.setFillColor(Color(128, 128, 128, 150));
 	actualPlayerShape.setOutlineThickness(CIRCLE_BORDER);
-	actualPlayerShape.setOutlineColor(Color(250, 150, 100));
+	actualPlayerShape.setOutlineColor(Color(200, 200, 200, 150));
 	actualPlayerShape.setPosition(x, y);
 	window.draw(actualPlayerShape);
 }
 
 void renderPredictedSelf(RenderWindow& window, float x, float y) {
 	// Set up the player's shape with the given position
-	actualPlayerShape.setRadius(CIRCLE_RADIUS);
-	actualPlayerShape.setFillColor(Color::Green);
-	actualPlayerShape.setOutlineThickness(CIRCLE_BORDER);
-	actualPlayerShape.setOutlineColor(Color(250, 150, 100));
-	actualPlayerShape.setPosition(x, y);
+	predictedPlayerShape.setRadius(CIRCLE_RADIUS);
+	predictedPlayerShape.setFillColor(Color::Green);
+	predictedPlayerShape.setOutlineThickness(CIRCLE_BORDER);
+	predictedPlayerShape.setOutlineColor(Color(250, 150, 100));
+	predictedPlayerShape.setPosition(x, y);
 	window.draw(predictedPlayerShape);
 }
 
 // Draw positions received from server for own and other players
 void renderReceivedShapes(RenderWindow& window, const vector<Vector2f>& allPlayerPositions) {
-	otherPlayerShape.setFillColor(Color::Blue);
+	otherPlayerShape.setFillColor(Color::Green);
 	otherPlayerShape.setOutlineThickness(CIRCLE_BORDER);
-	otherPlayerShape.setOutlineColor(Color::White);
+	otherPlayerShape.setOutlineColor(Color(250, 150, 100));
 
 	// Iterate through all positions and render only if playerID matches
 	for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
