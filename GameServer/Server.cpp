@@ -4,6 +4,10 @@ struct ClientData {
 	unique_ptr<TcpSocket> socket;
 	Vector2f position;
 	int ID;
+
+	// For prediction
+	Vector2f velocity;
+	Clock lastUpdateTime;
 };
 vector<ClientData> clientData;
 
@@ -123,10 +127,21 @@ void processClientData(TcpSocket& client, size_t clientIndex) {
 			float x, y;
 			packet >> x >> y;
 
-			//if (abs(playerPositions[clientIndex].x - previousPositions[clientIndex].x) > threshold ||
-			//	abs(playerPositions[clientIndex].y - previousPositions[clientIndex].y) > threshold) {
-			//	// Send update
-			//}
+			auto& clientRef = clientData[clientIndex];
+			Vector2f newPosition = { x, y };
+			Time elapsed = clientRef.lastUpdateTime.getElapsedTime();
+			clientRef.lastUpdateTime.restart();
+
+			if (elapsed.asSeconds() > 0) {
+				clientRef.velocity = (newPosition - clientRef.position) / elapsed.asSeconds();
+			}
+			else {
+				cout << "No movement detected from Client " << clientIndex;
+				clientRef.velocity = { 0.0f, 0.0f }; // No movement detected
+			}
+
+			clientRef.position = newPosition;
+
 
 			clientData[clientIndex].position = { x, y };
 		}
@@ -163,9 +178,13 @@ void spawnRainbowBall() {
 	rainbowBall = { position, color };
 	hasRainbowBall = true;
 	spawnTime = ClockType::now();
+	float spawnTimeSeconds = chrono::duration<float>(spawnTime.time_since_epoch()).count(); // Convert spawn time to a float representing seconds since the epoch
 
 	Packet packet;
-	packet << "SPAWN" << position.x << position.y << static_cast<Uint8>(color.r) << static_cast<Uint8>(color.g) << static_cast<Uint8>(color.b);
+	packet << "SPAWN" << position.x << position.y << static_cast<Uint8>(color.r) << static_cast<Uint8>(color.g) << static_cast<Uint8>(color.b) << spawnTimeSeconds;
+	cout << "Spawn Rainbow at " << position.x << ", " << position.y << ". Time: " << spawnTimeSeconds << " seconds.\n";
+	// You can also add logging to monitor the size of the packet
+	cout << "Rainbows Packet size: " << packet.getDataSize() << endl;
 	broadcastToClients(packet);
 }
 
@@ -187,6 +206,9 @@ void broadcastToClients(Packet& packet) {
 		if (client.socket->send(packet) != Socket::Done) {
 			cerr << "Failed to send packet to a client.\n";
 		}
+		else {
+			cout << "Sent packet to client " << client.ID << "\n";
+		}
 	}
 }
 
@@ -197,8 +219,12 @@ void sendPlayerPositions() {
 
 	// Player ID + positions
 	for (const auto& client : clientData) {
-		packet << client.ID << client.position.x << client.position.y;
-		cout << "Send for ID " << client.ID << " " << client.position.x << ", " << client.position.y << endl;
+		// Predict the next position
+		Time elapsed = ticker.getElapsedTime();
+		Vector2f predictedPosition = client.position + (client.velocity * elapsed.asSeconds());
+
+		packet << client.ID << predictedPosition.x << predictedPosition.y;
+		//cout << "Send for ID " << client.ID << " Predicted: " << predictedPosition.x << ", " << predictedPosition.y << endl;
 	}
 
 	for (auto& client : clientData) {

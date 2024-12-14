@@ -300,10 +300,9 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		receivePlayerPositions(socket, allPlayerPositions);
 		receiveRainbowData(socket, rainbowPositions, rainbowColors);
 
-		for (const auto& position : allPlayerPositions) {
-
+		/*for (const auto& position : allPlayerPositions) {
 			cout << "All Player Positions: (" << position.x << ", " << position.y << ")" << std::endl;
-		}
+		}*/
 
 		// Clear the window and render everything
 		window.clear();
@@ -336,7 +335,7 @@ void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositi
 
 				packet >> id >> x >> y;
 				allPlayerPositions[id] = (Vector2f(x, y));
-				cout << "Received Player ID + Position :: " << id << " :: " << x << ", " << y << endl;
+				//cout << "Received Player ID + Position :: " << id << " :: " << x << ", " << y << endl;
 			}
 		}
 	}
@@ -391,16 +390,17 @@ void receiveRainbowData(TcpSocket& socket, vector<Vector2f>& positions, vector<C
 		receivedPacket >> command;
 
 		if (command == "SPAWN") {
-			float x, y;
+			float x, y, spawnTime;
 			Uint8 r, g, b;
-			receivedPacket >> x >> y >> r >> g >> b;
+			receivedPacket >> x >> y >> r >> g >> b >> spawnTime;
 			positions.push_back(Vector2f(x, y));
 			colors.push_back(Color(r, g, b));
-			cout << "Rainbow received \n";
+			cout << "Rainbow received: " << x << ", " << y << " with spawn time: " << spawnTime << " seconds.\n";
 		}
 		else if (command == "DESPAWN") {
 			positions.clear();
 			colors.clear();
+			cout << "Cleared rainbows\n";
 		}
 	}
 	else {
