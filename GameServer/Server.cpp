@@ -4,6 +4,7 @@ struct ClientData {
 	unique_ptr<TcpSocket> socket;
 	Vector2f position;
 	int ID;
+	int score = 0;  // Add score field
 
 	// For prediction
 	Vector2f velocity;
@@ -27,6 +28,7 @@ ClockType::time_point lastSpawnAttempt = ClockType::now();
 float smoothingFactor = 0.8f; // Apply a smoothing factor when updating velocities to reduce sudden changes caused by small inaccuracies or lag.
 float dampingFactor = 0.95f; // Apply a damping factor to slow down abrupt velocity changes.
 
+bool isPlayerTouchingRainbowBall(const ClientData& player);
 
 void SetupServer(unsigned short port) {
 	if (listener.listen(port) != Socket::Done) {
@@ -154,6 +156,14 @@ void processClientData(TcpSocket& client, size_t clientIndex) {
 				clientRef.acceleration = { 0.0f, 0.0f };
 			}
 
+			// Check for collision with the rainbow ball
+			if (hasRainbowBall && isPlayerTouchingRainbowBall(clientRef)) {
+				// Increment score and despawn rainbow ball
+				clientRef.score++;
+				despawnRainbowBall();  // Despawn the rainbow ball if touched
+				broadcastUpdatedScores();  // Send updated scores to both players
+			}
+
 			clientRef.position = newPosition;
 			clientData[clientIndex].position = { x, y };
 		}
@@ -164,6 +174,11 @@ void processClientData(TcpSocket& client, size_t clientIndex) {
 	else {
 		handleErrors(status);
 	}
+}
+
+bool isPlayerTouchingRainbowBall(const ClientData& player) {
+	float distance = sqrt(pow(player.position.x - rainbowBall.first.x, 2) + pow(player.position.y - rainbowBall.first.y, 2));
+	return distance < CIRCLE_RADIUS;  // Check if the player is within range of the rainbow ball's radius
 }
 
 void handleDisconnection(size_t index) {
@@ -238,8 +253,6 @@ void spawnRainbowBall() {
 	Packet packet;
 	packet << "SPAWN" << position.x << position.y << static_cast<Uint8>(color.r) << static_cast<Uint8>(color.g) << static_cast<Uint8>(color.b) << spawnTimeSeconds;
 	cout << "Spawn Rainbow at " << position.x << ", " << position.y << ". Time: " << spawnTimeSeconds << " seconds.\n";
-	// You can also add logging to monitor the size of the packet
-	cout << "Rainbows Packet size: " << packet.getDataSize() << endl;
 	broadcastToClients(packet);
 }
 
@@ -254,6 +267,16 @@ void despawnRainbowBall() {
 	Packet packet;
 	packet << "DESPAWN";
 	broadcastToClients(packet);
+}
+
+void broadcastUpdatedScores() {
+	Packet packet;
+	packet << "UPDATE_SCORES";
+	for (const auto& client : clientData) {
+		packet << client.ID << client.score;  // Send updated score for each player
+		cout << "Client " << client.ID << " score updated: " << client.score << "\n";
+	}
+	broadcastToClients(packet);  // Send the updated scores to all clients
 }
 
 void broadcastToClients(Packet& packet) {

@@ -1,20 +1,30 @@
 #include "Client.h"
 
-// Global variables
 TcpSocket socket;
 RenderWindow* window = nullptr; // Pointer to the game window
+GameState currentState = GameState::MainMenu;
+
+unordered_map<int, Player> players;
+
+// Struct to hold data for each player on the client
+struct PlayerData {
+	Vector2f position;
+	Vector2f lastPosition;
+	float lerpTime;  // Time for interpolation
+	float lastUpdateTime;
+};
+vector<PlayerData> allPlayerData(2);  // Array to store data for all players
+int playerScores[2] = { 0, 0 };
+vector<Vector2f> allPlayerPositions(2);
+int playerID = -1;
+
 CircleShape actualPlayerShape(CIRCLE_RADIUS);
 CircleShape predictedPlayerShape(CIRCLE_RADIUS);
 CircleShape otherPlayerShape(CIRCLE_RADIUS);
-unordered_map<int, Player> players;
-int playerID = -1;
-GameState currentState = GameState::MainMenu;
 
 bool hasRainbowBall = false;
 vector<Vector2f> rainbowPositions;
 vector<Color> rainbowColors;
-
-vector<Vector2f> allPlayerPositions(2);
 
 Clock sendTimer; // Add this clock at the beginning of the game loop or as a global variable.
 float sendInterval = 0.1f; // Time interval in seconds (e.g., 100 ms)
@@ -72,8 +82,6 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 			quitText.setPosition(quitButton.getPosition().x + quitButton.getSize().x / 2 - quitText.getGlobalBounds().width / 2,
 				quitButton.getPosition().y + quitButton.getSize().y / 2 - quitText.getGlobalBounds().height / 2);
 
-
-
 			// Update button colors for hover effects
 			Vector2i mousePos = Mouse::getPosition(*window);
 			playButton.setFillColor(playButton.getGlobalBounds().contains(Vector2f(mousePos)) ? Color(70, 130, 180) : Color(100, 149, 237));
@@ -103,9 +111,15 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 							string message;
 							packet >> message;
 
-							currentState = (message == "Waiting for another player to connect...")
-								? GameState::WaitingForPlayer
-								: GameState::Playing;
+							if (message == "Waiting for another player to connect...") {
+								currentState = GameState::WaitingForPlayer;
+							}
+							else if (message == "The lobby is full. Try again later.") {
+								currentState = GameState::LobbyFull;
+							}
+							else {
+								currentState = GameState::Playing;
+							}
 							break;
 						}
 					}
@@ -118,7 +132,6 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 				}
 			}
 
-
 			// Draw the main menu UI
 			window->clear();
 			window->draw(title);
@@ -126,6 +139,59 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 			window->draw(quitButton);
 			window->draw(playText);
 			window->draw(quitText);
+			window->display();
+		}
+		else if (currentState == GameState::LobbyFull) {
+			// Lobby Full Screen Logic
+			// Create a screen informing the user the lobby is full
+
+			Font font;
+			if (!font.loadFromFile("res/comic.ttf")) {
+				cerr << "Failed to load font!" << endl;
+				return;
+			}
+
+			Text fullMessage("The lobby is full. Try again later.", font, 30);
+			fullMessage.setFillColor(Color::White);
+			fullMessage.setPosition(window->getSize().x / 2 - fullMessage.getGlobalBounds().width / 2, window->getSize().y / 3);
+
+			RectangleShape backButton(Vector2f(200, 50));
+			backButton.setPosition(window->getSize().x / 2 - 100, window->getSize().y / 2);
+			backButton.setFillColor(Color(100, 149, 237)); // Cornflower blue
+
+			Text backText("Back", font, 24);
+			backText.setFillColor(Color::White);
+			backText.setPosition(backButton.getPosition().x + backButton.getSize().x / 2 - backText.getGlobalBounds().width / 2,
+				backButton.getPosition().y + backButton.getSize().y / 2 - backText.getGlobalBounds().height / 2);
+
+			// Update button colors for hover effects
+			Vector2i mousePos = Mouse::getPosition(*window);
+			backButton.setFillColor(backButton.getGlobalBounds().contains(Vector2f(mousePos)) ? Color(70, 130, 180) : Color(100, 149, 237));
+
+			// Handle events for the lobby full screen
+			Event event;
+			while (window->pollEvent(event)) {
+				if (event.type == Event::Closed) {
+					window->close();
+					delete window;
+					window = nullptr;
+					return;
+				}
+
+				if (event.type == Event::MouseButtonPressed) {
+					Vector2f mousePosition(event.mouseButton.x, event.mouseButton.y);
+					if (backButton.getGlobalBounds().contains(mousePosition)) {
+						currentState = GameState::MainMenu;  // Go back to Main Menu
+						break;
+					}
+				}
+			}
+
+			// Draw the lobby full screen UI
+			window->clear();
+			window->draw(fullMessage);
+			window->draw(backButton);
+			window->draw(backText);
 			window->display();
 		}
 		else if (currentState == GameState::WaitingForPlayer) {
@@ -142,6 +208,20 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 			break;
 		}
 	}
+}
+
+// Function to display scores at the top left of the window
+void displayScores(RenderWindow& window, Font& font) {
+	Text player1ScoreText("Player 1 Score: " + std::to_string(playerScores[0]), font, 24);
+	player1ScoreText.setFillColor(Color::White);
+	player1ScoreText.setPosition(10, 10);  // Top-left corner
+
+	Text player2ScoreText("Player 2 Score: " + std::to_string(playerScores[1]), font, 24);
+	player2ScoreText.setFillColor(Color::White);
+	player2ScoreText.setPosition(10, 40);  // Just below Player 1 score
+
+	window.draw(player1ScoreText);
+	window.draw(player2ScoreText);
 }
 
 void displayWaitingMessage(RenderWindow& window) {
@@ -210,7 +290,7 @@ bool receiveInitialPosition(TcpSocket& socket, float& x, float& y) {
 		}
 	}
 	else {
-		cout << "Failed to receive initial position!" << endl;
+		cout << "There was an error getting the initial spawn positions.";
 		return false;
 	}
 }
@@ -224,13 +304,11 @@ void startGame(RenderWindow*& window, TcpSocket& socket) {
 	// Setup window
 	window = new RenderWindow(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Corporate Life", Style::Default);
 	window->setVerticalSyncEnabled(true);
-
 	if (!window) {
 		cerr << "Failed to create window for the game!" << endl;
 		return;
 	}
 
-	// Start game loop
 	gameLoop(*window, socket);
 }
 
@@ -241,12 +319,18 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 
 	// Create a player shape and set its initial position
 	Vector2f targetPos; // Target position based on mouse
-	float moveSpeed = 100.f; // Speed of movement in pixels per second
+	float moveSpeed = 400.f; // Speed of movement in pixels per second
 
 	Clock clock; // For frame-based timing
 
 	while (window.isOpen()) {
 		float deltaTime = clock.restart().asSeconds(); // Time since last frame
+
+		Font font;
+		if (!font.loadFromFile("res/comic.ttf")) {
+			cerr << "Failed to load font!" << endl;
+			return;
+		}
 
 		Event event;
 		while (window.pollEvent(event)) {
@@ -282,8 +366,6 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		sendPlayerPosition(socket, actualPlayerShape, movementVector); // Send the updated position of the player to the server.
 
 
-
-
 		// Receive packet from server. Check what command it is and then call that function.
 		Packet receivedPacket;
 		auto status = socket.receive(receivedPacket);
@@ -294,14 +376,14 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 			if (command == "PLAYER_POSITIONS") receivePlayerPositions(socket, allPlayerPositions, receivedPacket);
 			else if (command == "SPAWN") receiveRainbowData(rainbowPositions, rainbowColors, receivedPacket);
 			else if (command == "DESPAWN") deleteRainbowData(rainbowPositions, rainbowColors);
+			else if (command == "UPDATE_SCORES") updateScores(receivedPacket);
 			else cerr << "Error receiving data from socket: " << status << endl;
 		}
 
 
-
-
 		// Clear the window and render everything
 		window.clear();
+		displayScores(window, font);
 		renderActualSelf(window, actualPlayerShape.getPosition().x, actualPlayerShape.getPosition().y);
 		renderReceivedShapes(window, allPlayerPositions); // Draw all the players (self and opponent)
 		drawRainbowBalls(window); // Draw the rainbow ball
@@ -312,19 +394,35 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 void sendPlayerPosition(TcpSocket& socket, const CircleShape& actualPlayerShape, Vector2f movementVector) {
 	Packet packet;
 	packet << "UPDATE_POSITION" << actualPlayerShape.getPosition().x << actualPlayerShape.getPosition().y << movementVector.x << movementVector.y;
-	cout << "Sent positions: " << actualPlayerShape.getPosition().x << ", " << actualPlayerShape.getPosition().y << endl;
 	if (socket.send(packet) != Socket::Done) {
 		cerr << "Failed to send player position to the server.\n";
 	}
 }
 
 void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositions, Packet packet) {
+	Clock localClock;
+
 	for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
 		float x, y;
 		int id;
 		packet >> id >> x >> y;
+
+		// Interpolation Strategy:
+		// If it's a new position, interpolate towards it
+		if (id != playerID) {
+			PlayerData& player = allPlayerData[id];
+			float currentTime = localClock.getElapsedTime().asSeconds();
+
+			// Interpolate from the last position to the new position based on time elapsed
+			float deltaTime = currentTime - player.lastUpdateTime;
+			player.lerpTime = std::min(deltaTime, 0.1f);  // Limit max time for interpolation
+
+			// Store the new position and update time
+			player.lastPosition = player.position;
+			player.position = { x, y };
+			player.lastUpdateTime = currentTime;
+		}
 		allPlayerPositions[id] = (Vector2f(x, y));
-		//cout << "Received Player ID + Position :: " << id << " :: " << x << ", " << y << endl;
 	}
 }
 
@@ -335,6 +433,21 @@ void receiveRainbowData(vector<Vector2f>& positions, vector<Color>& colors, Pack
 	positions.push_back(Vector2f(x, y));
 	colors.push_back(Color(r, g, b));
 	cout << "Rainbow received: " << x << ", " << y << " with spawn time: " << spawnTime << " seconds.\n";
+}
+
+// Function to update the scores received from the server
+void updateScores(Packet& packet) {
+	int playerID, score;
+	memset(playerScores, 0, sizeof(playerScores));
+
+	// Decode the scores from the packet
+	while (!packet.endOfPacket()) {
+		packet >> playerID >> score;
+		if (playerID >= 0 && playerID < 2) { // Assuming two players, adjust if needed
+			playerScores[playerID] = score;
+		}
+	}
+	cout << "Scores updated: Player 1: " << playerScores[0] << ", Player 2: " << playerScores[1] << endl;
 }
 
 void deleteRainbowData(vector<Vector2f>& positions, vector<Color>& colors) {
@@ -375,11 +488,17 @@ void renderReceivedShapes(RenderWindow& window, const vector<Vector2f>& allPlaye
 	// Iterate through all positions and render only if playerID matches
 	for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
 		if (static_cast<int>(i) != playerID) {
-			otherPlayerShape.setPosition(allPlayerPositions[i]);
-			window.draw(otherPlayerShape); // Loads opponent
+			PlayerData& player = allPlayerData[i];
+
+			// Smoothly interpolate the player position based on time
+			float t = player.lerpTime;
+			Vector2f interpolatedPosition = player.lastPosition + t * (player.position - player.lastPosition);
+
+			otherPlayerShape.setPosition(interpolatedPosition);
+			window.draw(otherPlayerShape); // Draw opponent player
 		}
 		else {
-			renderPredictedSelf(window, allPlayerPositions[i].x, allPlayerPositions[i].y); // Loads self
+			renderPredictedSelf(window, allPlayerPositions[i].x, allPlayerPositions[i].y); // Draw self
 		}
 	}
 }

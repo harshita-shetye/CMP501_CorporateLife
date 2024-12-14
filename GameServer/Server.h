@@ -16,8 +16,6 @@ using namespace std;
 using namespace sf;
 using ClockType = chrono::steady_clock;
 
-
-
 // Constants
 constexpr unsigned short PORT = 5555;
 constexpr float CIRCLE_RADIUS = 15.f;
@@ -46,6 +44,7 @@ void trySpawnRainbowBall();
 void spawnRainbowBall();
 void checkRainbowBallTimeout();
 void despawnRainbowBall();
+void broadcastUpdatedScores();
 void broadcastToClients(Packet& packet);
 
 void sendPlayerPositions();

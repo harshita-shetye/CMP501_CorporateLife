@@ -34,7 +34,8 @@ struct PlayerState {
 enum class GameState {
 	MainMenu,
 	Playing,
-	WaitingForPlayer
+	WaitingForPlayer,
+	LobbyFull
 };
 
 // Struct for representing players in the game
@@ -53,6 +54,7 @@ extern bool hasRainbowBall;
 
 // Main menu creation and management
 void createMainMenu(RenderWindow*& window, TcpSocket& socket);
+void displayScores(RenderWindow& window, Font& font);
 void displayWaitingMessage(RenderWindow& window);
 void handleWaitingState(RenderWindow* window, TcpSocket& socket);
 void startGame(RenderWindow*& window, TcpSocket& socket);
@@ -68,6 +70,7 @@ void gameLoop(RenderWindow& window, TcpSocket& socket);
 void sendPlayerPosition(TcpSocket& socket, const CircleShape& predictedPlayerShape, Vector2f moveSpeed);
 void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& otherPlayerPositions, Packet packet);
 void receiveRainbowData(vector<Vector2f>& positions, vector<Color>& colors, Packet packet);
+void updateScores(Packet& packet);
 
 // Drawing logic
 void renderActualSelf(RenderWindow& window, float x, float y);
