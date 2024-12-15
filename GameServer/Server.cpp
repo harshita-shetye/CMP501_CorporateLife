@@ -4,7 +4,8 @@ struct ClientData {
 	unique_ptr<TcpSocket> socket;
 	Vector2f position;
 	int ID;
-	int score = 0;  // Add score field
+	int score = 0;
+	string playerName;
 
 	// For prediction
 	Vector2f velocity;
@@ -133,6 +134,14 @@ void processClientData(TcpSocket& client, size_t clientIndex) {
 	if (status == Socket::Done) {
 		string command;
 		packet >> command;
+
+		if (command == "PLAYER_NAME") {
+			std::string receivedName;
+			packet >> receivedName;
+
+			clientData[clientIndex].playerName = receivedName;
+			std::cout << "Player " << clientIndex << " is now known as " << receivedName << "\n";
+		}
 
 		if (command == "UPDATE_POSITION") {
 			float x, y, moveX, moveY;
@@ -273,8 +282,8 @@ void broadcastUpdatedScores() {
 	Packet packet;
 	packet << "UPDATE_SCORES";
 	for (const auto& client : clientData) {
-		packet << client.ID << client.score;  // Send updated score for each player
-		cout << "Client " << client.ID << " score updated: " << client.score << "\n";
+		packet << client.ID << client.playerName << client.score;  // Include player name
+		std::cout << "Client " << client.ID << " (" << client.playerName << ") score updated: " << client.score << "\n";
 	}
 	broadcastToClients(packet);  // Send the updated scores to all clients
 }

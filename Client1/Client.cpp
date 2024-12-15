@@ -17,6 +17,7 @@ vector<PlayerData> allPlayerData(2);  // Array to store data for all players
 int playerScores[2] = { 0, 0 };
 vector<Vector2f> allPlayerPositions(2);
 int playerID = -1;
+unordered_map<int, string> playerNames; // Map to store player ID and names
 
 CircleShape actualPlayerShape(CIRCLE_RADIUS);
 CircleShape predictedPlayerShape(CIRCLE_RADIUS);
@@ -29,19 +30,47 @@ vector<Color> rainbowColors;
 Clock sendTimer; // Add this clock at the beginning of the game loop or as a global variable.
 float sendInterval = 0.1f; // Time interval in seconds (e.g., 100 ms)
 
+string playerName;
+
+
 
 // Connect to the server
 bool connectToServer(TcpSocket& socket) {
 	// Try to connect to the server
 	if (socket.connect(SERVER, PORT) != Socket::Done) {
-		std::cerr << "Error: Could not connect to server.\n";
+		cerr << "Error: Could not connect to server.\n";
 		return false;
 	}
 	return true;
 }
 
+// Helper functions for creating UI elements
+Text createText(const std::string& content, const Font& font, unsigned int size, const Color& color, float x, float y) {
+	Text text(content, font, size);
+	text.setFillColor(color);
+	text.setPosition(x, y);
+	return text;
+}
+
+RectangleShape createButton(float width, float height, const Color& color, float x, float y) {
+	RectangleShape button(Vector2f(width, height));
+	button.setFillColor(color);
+	button.setPosition(x, y);
+	return button;
+}
+
 // Create and display the main menu
 void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
+
+	bool showError = false;
+	bool isEditingName = false;
+
+	Font font;
+	if (!font.loadFromFile("res/comic.ttf")) {
+		cerr << "Failed to load font!" << endl;
+		return;
+	}
+
 	// Main Menu Loop
 	while (true) {
 		if (currentState == GameState::MainMenu) {
@@ -51,36 +80,25 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 				window->setVerticalSyncEnabled(true);
 			}
 
-			// Load the font
-			Font font;
-			if (!font.loadFromFile("res/comic.ttf")) {
-				cerr << "Failed to load font!" << endl;
-				return;
-			}
+			// Dynamically position UI elements
+			float centerX = window->getSize().x / 2;
+			float buttonWidth = 200.f;
+			float buttonHeight = 50.f;
 
 			// Create UI elements
-			Text title("Corporate Life", font, 50);
-			title.setFillColor(Color(255, 215, 0)); // Gold color
+			Text title = createText("Corporate Life", font, 50, Color(255, 215, 0), centerX - 120, 50);
 			title.setStyle(Text::Bold | Text::Underlined);
-			title.setPosition(window->getSize().x / 2 - title.getGlobalBounds().width / 2, 50);
 
-			RectangleShape playButton(Vector2f(200, 50));
-			playButton.setPosition(window->getSize().x / 2 - 100, 150);
-			playButton.setFillColor(Color(100, 149, 237)); // Cornflower blue
+			RectangleShape playButton = createButton(buttonWidth, buttonHeight, Color(100, 149, 237), centerX - buttonWidth / 2, 150);
+			RectangleShape quitButton = createButton(buttonWidth, buttonHeight, Color(178, 34, 34), centerX - buttonWidth / 2, 250);
 
-			RectangleShape quitButton(Vector2f(200, 50));
-			quitButton.setPosition(window->getSize().x / 2 - 100, 250);
-			quitButton.setFillColor(Color(178, 34, 34)); // Firebrick
+			Text playText = createText("Play", font, 24, Color::White, playButton.getPosition().x + 75, playButton.getPosition().y + 10);
+			Text quitText = createText("Quit", font, 24, Color::White, quitButton.getPosition().x + 75, quitButton.getPosition().y + 10);
 
-			Text playText("Play", font, 24);
-			playText.setFillColor(Color::White);
-			playText.setPosition(playButton.getPosition().x + playButton.getSize().x / 2 - playText.getGlobalBounds().width / 2,
-				playButton.getPosition().y + playButton.getSize().y / 2 - playText.getGlobalBounds().height / 2);
+			Text prompt = createText("Enter your name:", font, 24, Color::White, 50, 350);
+			Text playerNameText = createText(playerName.empty() ? "Click to enter name" : playerName, font, 24, isEditingName ? Color::White : Color::Cyan, 250, 350);
 
-			Text quitText("Quit", font, 24);
-			quitText.setFillColor(Color::White);
-			quitText.setPosition(quitButton.getPosition().x + quitButton.getSize().x / 2 - quitText.getGlobalBounds().width / 2,
-				quitButton.getPosition().y + quitButton.getSize().y / 2 - quitText.getGlobalBounds().height / 2);
+			Text errorText = createText("Name cannot be empty!", font, 20, Color::Red, 50, 400);
 
 			// Update button colors for hover effects
 			Vector2i mousePos = Mouse::getPosition(*window);
@@ -100,9 +118,27 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 				if (event.type == Event::MouseButtonPressed) {
 					Vector2f mousePosition(event.mouseButton.x, event.mouseButton.y);
 					if (playButton.getGlobalBounds().contains(mousePosition)) {
-						if (socket.getRemoteAddress() == sf::IpAddress::None && !connectToServer(socket)) {
-							cerr << "Failed to connect to server!" << endl;
-							continue;
+
+						if (playerName.empty()) {
+							showError = true;
+						}
+						else {
+							showError = false;
+
+							if (socket.getRemoteAddress() == IpAddress::None && !connectToServer(socket)) {
+								cerr << "Failed to connect to server!" << endl;
+								continue;
+							}
+							else {
+								// Send player name to server
+								Packet packet;
+								packet << "PLAYER_NAME" << playerName;
+
+								if (socket.send(packet) != Socket::Done) {
+									cerr << "Failed to send player name to server!" << endl;
+									continue;
+								}
+							}
 						}
 
 						// Once connected, receive a message from the server
@@ -129,6 +165,27 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 						window = nullptr;
 						return;
 					}
+					else if (playerNameText.getGlobalBounds().contains(mousePosition)) {
+						isEditingName = true;
+						playerName.clear();
+					}
+					else {
+						isEditingName = false;
+					}
+				}
+
+				if (event.type == Event::TextEntered && isEditingName) {
+					if (event.text.unicode == '\b') { // Handle backspace
+						if (!playerName.empty()) {
+							playerName.pop_back();
+						}
+					}
+					else if (event.text.unicode == '\r') { // Handle Enter key
+						isEditingName = false;
+					}
+					else if (event.text.unicode < 128) { // Append ASCII characters
+						playerName += static_cast<char>(event.text.unicode);
+					}
 				}
 			}
 
@@ -136,9 +193,14 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 			window->clear();
 			window->draw(title);
 			window->draw(playButton);
-			window->draw(quitButton);
 			window->draw(playText);
+			window->draw(quitButton);
 			window->draw(quitText);
+			window->draw(prompt);
+			window->draw(playerNameText);
+			if (showError) {
+				window->draw(errorText);
+			}
 			window->display();
 		}
 		else if (currentState == GameState::LobbyFull) {
@@ -210,25 +272,45 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 	}
 }
 
+void handleNameInput(Event& event) {
+	if (event.type == Event::TextEntered) {
+		if (event.text.unicode == '\b') { // Backspace handling
+			if (!playerName.empty())
+				playerName.pop_back();
+		}
+		else if (event.text.unicode == '\r') { // Enter key to confirm
+			cout << "Name entered: " << playerName << "\n";
+		}
+		else if (playerName.length() < 15) { // Limit to 15 characters
+			playerName += static_cast<char>(event.text.unicode);
+		}
+	}
+}
+
 // Function to display scores at the top left of the window
 void displayScores(RenderWindow& window, Font& font) {
-	Text player1ScoreText("Player 1 Score: " + std::to_string(playerScores[0]), font, 24);
-	player1ScoreText.setFillColor(Color::White);
-	player1ScoreText.setPosition(10, 10);  // Top-left corner
+	int yOffset = 10; // Vertical spacing between scores
+	int index = 0;
 
-	Text player2ScoreText("Player 2 Score: " + std::to_string(playerScores[1]), font, 24);
-	player2ScoreText.setFillColor(Color::White);
-	player2ScoreText.setPosition(10, 40);  // Just below Player 1 score
+	// Iterate over the unordered_map using iterators
+	for (unordered_map<int, string>::iterator it = playerNames.begin(); it != playerNames.end(); ++it) {
+		int id = it->first;  // Player ID
+		string name = it->second;  // Player Name
 
-	window.draw(player1ScoreText);
-	window.draw(player2ScoreText);
+		// Ensure playerScores[id] exists even if it is 0
+		string scoreText = name + "'s Score: " + to_string(playerScores[id]); // Display 0 if the score is 0
+		Text scoreDisplay = createText(scoreText, font, 24, Color::White, 10, yOffset + (index * 30));
+		window.draw(scoreDisplay);
+
+		index++;
+	}
 }
 
 void displayWaitingMessage(RenderWindow& window) {
 	// Create font
 	Font font;
 	if (!font.loadFromFile("res/comic.ttf")) { // Specify the correct font path
-		std::cerr << "Error loading font!" << std::endl;
+		cerr << "Error loading font!" << endl;
 		return;
 	}
 
@@ -320,6 +402,7 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 	// Create a player shape and set its initial position
 	Vector2f targetPos; // Target position based on mouse
 	float moveSpeed = 400.f; // Speed of movement in pixels per second
+	const float deadZoneRadius = 5.f; // Dead zone radius to prevent jittering
 
 	Clock clock; // For frame-based timing
 
@@ -349,19 +432,21 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 
 		// Compute direction vector and normalize it
 		Vector2f direction = targetPos - currentPos;
-		float length = std::sqrt(direction.x * direction.x + direction.y * direction.y);
-		if (length > 0.1f) { // Prevent jittering when close to the target. Move only if the target is sufficiently far.
-			direction /= length;
-			movementVector = direction * moveSpeed * deltaTime;
-			actualPlayerShape.move(movementVector);// Move the player towards the target position
+		float distance = sqrt(direction.x * direction.x + direction.y * direction.y);
+
+		// Only move if outside the dead zone
+		if (distance > deadZoneRadius) {
+			Vector2f normalizedDirection = direction / distance; // Normalize the direction vector
+			Vector2f movement = normalizedDirection * moveSpeed * deltaTime;
+			actualPlayerShape.move(movement);
 		}
 
 		// Clamp the player's position within the window bounds
 		Vector2f position = actualPlayerShape.getPosition();
 		float radius = actualPlayerShape.getRadius();
 
-		position.x = std::max(0.f, std::min(position.x, window.getSize().x - 2 * radius));
-		position.y = std::max(0.f, std::min(position.y, window.getSize().y - 2 * radius));
+		position.x = max(0.f, min(position.x, window.getSize().x - 2 * radius));
+		position.y = max(0.f, min(position.y, window.getSize().y - 2 * radius));
 		actualPlayerShape.setPosition(position);
 		sendPlayerPosition(socket, actualPlayerShape, movementVector); // Send the updated position of the player to the server.
 
@@ -415,7 +500,7 @@ void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositi
 
 			// Interpolate from the last position to the new position based on time elapsed
 			float deltaTime = currentTime - player.lastUpdateTime;
-			player.lerpTime = std::min(deltaTime, 0.1f);  // Limit max time for interpolation
+			player.lerpTime = min(deltaTime, 0.1f);  // Limit max time for interpolation
 
 			// Store the new position and update time
 			player.lastPosition = player.position;
@@ -438,16 +523,18 @@ void receiveRainbowData(vector<Vector2f>& positions, vector<Color>& colors, Pack
 // Function to update the scores received from the server
 void updateScores(Packet& packet) {
 	int playerID, score;
+	string nameReceived;
 	memset(playerScores, 0, sizeof(playerScores));
 
 	// Decode the scores from the packet
 	while (!packet.endOfPacket()) {
-		packet >> playerID >> score;
+		packet >> playerID >> nameReceived >> score;
 		if (playerID >= 0 && playerID < 2) { // Assuming two players, adjust if needed
 			playerScores[playerID] = score;
+			playerNames[playerID] = nameReceived;
 		}
 	}
-	cout << "Scores updated: Player 1: " << playerScores[0] << ", Player 2: " << playerScores[1] << endl;
+	cout << playerNames[playerID] << " (ID: " << playerID << "): " << playerScores[playerID] << ", ";
 }
 
 void deleteRainbowData(vector<Vector2f>& positions, vector<Color>& colors) {
