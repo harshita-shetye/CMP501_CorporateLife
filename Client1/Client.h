@@ -4,34 +4,14 @@
 #include <SFML/Graphics.hpp>
 #include <SFML/Network.hpp>
 #include <iostream>
-#include <vector>
 #include <unordered_map>
-
+#include <vector>
+#include <string>
 
 using namespace sf;
 using namespace std;
 
-// Constants
-const float CIRCLE_RADIUS = 15.f;
-const float CIRCLE_BORDER = 2.f;
-const float WINDOW_WIDTH = 1700.f;
-const float WINDOW_HEIGHT = 900.f;
-const float RAINBOW_RADIUS = 7.f;
-const unsigned short PORT = 5555;
-const string SERVER = "127.0.0.1";
-
-// Structs
-
-// Struct to manage player state and movement
-struct PlayerState {
-	Vector2f lastPosition;
-	Vector2f currentPosition;
-	Vector2f targetPosition;
-	Vector2f velocity; // For prediction
-	float interpolationFactor = 0.1f;
-};
-
-// Enum for game state
+// Enums for game state
 enum class GameState {
 	MainMenu,
 	Playing,
@@ -39,48 +19,87 @@ enum class GameState {
 	LobbyFull
 };
 
-// Struct for representing players in the game
 struct Player {
+	int id;
 	CircleShape shape;
 	Vector2f position;
+	Vector2f lastPosition;
+	Vector2f velocity;
+	float lerpTime;
+	float lastUpdateTime;
+	string name;
+	int score;
 };
 
-// External variables
-extern unordered_map<int, Player> players;
-extern int playerID;
-extern GameState currentState;
-extern bool hasRainbowBall;
+class Client {
+private:
 
-// Function declarations
+	// Constants
+	const string SERVER = "127.0.0.1";
+	const unsigned short PORT = 5555;
 
-// Main menu creation and management
-void createMainMenu(RenderWindow*& window, TcpSocket& socket);
-void displayScores(RenderWindow& window, Font& font);
-void displayWaitingMessage(RenderWindow& window);
-void handleWaitingState(RenderWindow* window, TcpSocket& socket);
-void startGame(RenderWindow*& window, TcpSocket& socket);
+	const float WINDOW_WIDTH = 1700.f;
+	const float WINDOW_HEIGHT = 900.f;
 
-// TCP Client functions
-bool connectToServer(TcpSocket& socket);
-bool receiveInitialPosition(TcpSocket& socket, float& x, float& y);
+	const float CIRCLE_RADIUS = 15.f;
+	const float CIRCLE_BORDER = 2.f;
+	const float RAINBOW_RADIUS = 7.f;
 
-// Player setup and game loop
-void gameLoop(RenderWindow& window, TcpSocket& socket);
+	// SFML objects
+	RenderWindow* window;
+	TcpSocket socket;
 
-// Send/Receieve positions for players and rainbow ball
-void sendPlayerPosition(TcpSocket& socket, const CircleShape& predictedPlayerShape, Vector2f moveSpeed);
-void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& otherPlayerPositions, Packet packet);
-void receiveRainbowData(vector<Vector2f>& positions, vector<Color>& colors, Packet packet);
-void updateScores(Packet& packet);
+	// Game state
+	int playerID;
+	unordered_map<int, Player> playerData;
+	GameState currentState;
 
-// Drawing logic
-void renderActualSelf(RenderWindow& window, float x, float y);
-void renderPredictedSelf(RenderWindow& window, float x, float y);
-void renderReceivedShapes(RenderWindow& window, const vector<Vector2f>& otherPlayerPositions);
+	vector<Vector2f> rainbowPositions;
+	vector<Color> rainbowColors;
+	bool hasRainbowBall;
 
-void deleteRainbowData(vector<Vector2f>& positions, vector<Color>& colors);
-void drawRainbowBalls(RenderWindow& window);
+	// UI-related
+	string playerName;
 
-// Error handling
+	// Circle shapes
+	CircleShape actualPlayerShape;
+	CircleShape predictedPlayerShape;
+	CircleShape otherPlayerShape;
+
+
+	bool connectToServer();
+
+	// Private helper methods
+	void createMainMenu();
+	RectangleShape createButton(float width, float height, const Color& color, float x, float y);
+	Text createText(const string& content, const Font& font, unsigned int size, const Color& color, float x, float y);
+	void displayWaitingMessage();
+	void handleWaitingState();
+
+	void startGame();
+	void receiveInitialPosition();
+
+	void gameLoop();
+	void sendPlayerPosition(Vector2f movementVector);
+	void receivePlayerPositions(Packet packet);
+	void receiveRainbowData(Packet packet);
+	void deleteRainbowData();
+	void updateScores(Packet& packet);
+	void displayScores(Font& font);
+	void renderActualSelf(float x, float y);
+	void renderReceivedShapes();
+	void drawRainbowBalls();
+	void renderPredictedSelf(float x, float y);
+
+	void handleErrors(Socket::Status status);
+
+public:
+	// Constructor and Destructor
+	Client();
+	~Client();
+
+	// Main entry point for the client
+	void run();
+};
 
 #endif

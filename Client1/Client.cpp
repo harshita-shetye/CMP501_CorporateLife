@@ -1,41 +1,30 @@
 #include "Client.h"
 
-TcpSocket socket;
-RenderWindow* window = nullptr; // Pointer to the game window
-GameState currentState = GameState::MainMenu;
+// Constructor
+Client::Client() :
+	window(nullptr),
+	playerID(-1),
+	currentState(GameState::MainMenu),
+	hasRainbowBall(false),
+	actualPlayerShape(CIRCLE_RADIUS),
+	predictedPlayerShape(CIRCLE_RADIUS),
+	otherPlayerShape(CIRCLE_RADIUS)
+{}
 
-unordered_map<int, Player> players;
+// Destructor
+Client::~Client() {
+	if (window) {
+		delete window;
+	}
+}
 
-// Struct to hold data for each player on the client
-struct PlayerData {
-	Vector2f position;
-	Vector2f lastPosition;
-	float lerpTime;  // Time for interpolation
-	float lastUpdateTime;
-};
-vector<PlayerData> allPlayerData(2);  // Array to store data for all players
-int playerScores[2] = { 0, 0 };
-vector<Vector2f> allPlayerPositions(2);
-int playerID = -1;
-unordered_map<int, string> playerNames; // Map to store player ID and names
-
-CircleShape actualPlayerShape(CIRCLE_RADIUS);
-CircleShape predictedPlayerShape(CIRCLE_RADIUS);
-CircleShape otherPlayerShape(CIRCLE_RADIUS);
-
-bool hasRainbowBall = false;
-vector<Vector2f> rainbowPositions;
-vector<Color> rainbowColors;
-
-Clock sendTimer; // Add this clock at the beginning of the game loop or as a global variable.
-float sendInterval = 0.1f; // Time interval in seconds (e.g., 100 ms)
-
-string playerName;
-
-
+// Run the client
+void Client::run() {
+	createMainMenu();
+}
 
 // Connect to the server
-bool connectToServer(TcpSocket& socket) {
+bool Client::connectToServer() {
 	// Try to connect to the server
 	if (socket.connect(SERVER, PORT) != Socket::Done) {
 		cerr << "Error: Could not connect to server.\n";
@@ -44,23 +33,9 @@ bool connectToServer(TcpSocket& socket) {
 	return true;
 }
 
-// Helper functions for creating UI elements
-Text createText(const std::string& content, const Font& font, unsigned int size, const Color& color, float x, float y) {
-	Text text(content, font, size);
-	text.setFillColor(color);
-	text.setPosition(x, y);
-	return text;
-}
-
-RectangleShape createButton(float width, float height, const Color& color, float x, float y) {
-	RectangleShape button(Vector2f(width, height));
-	button.setFillColor(color);
-	button.setPosition(x, y);
-	return button;
-}
-
+/* Game UI */
 // Create and display the main menu
-void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
+void Client::createMainMenu() {
 
 	bool showError = false;
 	bool isEditingName = false;
@@ -125,7 +100,7 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 						else {
 							showError = false;
 
-							if (socket.getRemoteAddress() == IpAddress::None && !connectToServer(socket)) {
+							if (socket.getRemoteAddress() == IpAddress::None && !connectToServer()) {
 								cerr << "Failed to connect to server!" << endl;
 								continue;
 							}
@@ -257,8 +232,8 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 			window->display();
 		}
 		else if (currentState == GameState::WaitingForPlayer) {
-			displayWaitingMessage(*window);
-			handleWaitingState(window, socket);
+			displayWaitingMessage();
+			handleWaitingState();
 		}
 		else if (currentState == GameState::Playing) {
 			// Close the main menu window and prepare for the next state
@@ -266,47 +241,28 @@ void createMainMenu(RenderWindow*& window, TcpSocket& socket) {
 			delete window;
 			window = nullptr;
 
-			startGame(window, socket);
+			startGame();
 			break;
 		}
 	}
 }
 
-void handleNameInput(Event& event) {
-	if (event.type == Event::TextEntered) {
-		if (event.text.unicode == '\b') { // Backspace handling
-			if (!playerName.empty())
-				playerName.pop_back();
-		}
-		else if (event.text.unicode == '\r') { // Enter key to confirm
-			cout << "Name entered: " << playerName << "\n";
-		}
-		else if (playerName.length() < 15) { // Limit to 15 characters
-			playerName += static_cast<char>(event.text.unicode);
-		}
-	}
+// Helper functions for creating UI elements
+Text Client::createText(const string& content, const Font& font, unsigned int size, const Color& color, float x, float y) {
+	Text text(content, font, size);
+	text.setFillColor(color);
+	text.setPosition(x, y);
+	return text;
 }
 
-// Function to display scores at the top left of the window
-void displayScores(RenderWindow& window, Font& font) {
-	int yOffset = 10; // Vertical spacing between scores
-	int index = 0;
-
-	// Iterate over the unordered_map using iterators
-	for (unordered_map<int, string>::iterator it = playerNames.begin(); it != playerNames.end(); ++it) {
-		int id = it->first;  // Player ID
-		string name = it->second;  // Player Name
-
-		// Ensure playerScores[id] exists even if it is 0
-		string scoreText = name + "'s Score: " + to_string(playerScores[id]); // Display 0 if the score is 0
-		Text scoreDisplay = createText(scoreText, font, 24, Color::White, 10, yOffset + (index * 30));
-		window.draw(scoreDisplay);
-
-		index++;
-	}
+RectangleShape Client::createButton(float width, float height, const Color& color, float x, float y) {
+	RectangleShape button(Vector2f(width, height));
+	button.setFillColor(color);
+	button.setPosition(x, y);
+	return button;
 }
 
-void displayWaitingMessage(RenderWindow& window) {
+void Client::displayWaitingMessage() {
 	// Create font
 	Font font;
 	if (!font.loadFromFile("res/comic.ttf")) { // Specify the correct font path
@@ -319,17 +275,17 @@ void displayWaitingMessage(RenderWindow& window) {
 	waitingText.setFont(font);
 	waitingText.setString("Waiting for player 2...");
 	waitingText.setFillColor(Color::White); // Text color
-	waitingText.setPosition(window.getSize().x / 2 - waitingText.getGlobalBounds().width / 2,
-		window.getSize().y / 2 - waitingText.getGlobalBounds().height / 2); // Center the text
+	waitingText.setPosition(window->getSize().x / 2 - waitingText.getGlobalBounds().width / 2,
+		window->getSize().y / 2 - waitingText.getGlobalBounds().height / 2); // Center the text
 
 	// Draw text on window
-	window.clear();
-	window.draw(waitingText);
-	window.display();
+	window->clear();
+	window->draw(waitingText);
+	window->display();
 }
 
-void handleWaitingState(RenderWindow* window, TcpSocket& socket) {
-	Event event;
+void Client::handleWaitingState() {
+	Event event{};
 	while (window->pollEvent(event)) {
 		if (event.type == Event::Closed) {
 			window->close(); // Close the window when the user requests it
@@ -354,34 +310,9 @@ void handleWaitingState(RenderWindow* window, TcpSocket& socket) {
 	socket.setBlocking(true);  // Reset the socket to blocking mode when done
 }
 
+void Client::startGame() {
 
-// Function to receive the initial position of the player from the server
-bool receiveInitialPosition(TcpSocket& socket, float& x, float& y) {
-	Packet positionPacket;
-	if (socket.receive(positionPacket) == Socket::Done) {
-		string command;
-		positionPacket >> command;
-
-		if (command == "PLAYER_POSITIONS") {
-			positionPacket >> playerID >> x >> y; // Now we extract the position after confirming the command
-			return true;
-		}
-		else {
-			cout << "Received unexpected command: " << command << endl;
-			return false;
-		}
-	}
-	else {
-		cout << "There was an error getting the initial spawn positions.";
-		return false;
-	}
-}
-
-void startGame(RenderWindow*& window, TcpSocket& socket) {
-	// Create a ghost circle for actual movements
-	float spawnX, spawnY;
-	if (!receiveInitialPosition(socket, spawnX, spawnY)) return;
-	actualPlayerShape.setPosition(spawnX, spawnY);
+	receiveInitialPosition();
 
 	// Setup window
 	window = new RenderWindow(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Corporate Life", Style::Default);
@@ -391,13 +322,38 @@ void startGame(RenderWindow*& window, TcpSocket& socket) {
 		return;
 	}
 
-	gameLoop(*window, socket);
+	gameLoop();
 }
 
+// Function to receive the initial position of the player from the server
+void Client::receiveInitialPosition() {
+
+	Packet positionPacket;
+	string command;
+	float x, y;
+	int spawnID;
+
+	if (socket.receive(positionPacket) == Socket::Done) {
+		positionPacket >> command;
+		if (command == "PLAYER_POSITIONS") {
+			positionPacket >> spawnID >> x >> y; // Now we extract the position after confirming the command
+			actualPlayerShape.setPosition(x, y);
+		}
+		else {
+			cerr << "Received unexpected command: " << command << endl;
+		}
+	}
+	else {
+		cout << "There was an error getting the initial spawn positions.";
+		return;
+	}
+}
+
+/* Main Game Loop */
 
 // Main game loop for rendering and handling player movement
-void gameLoop(RenderWindow& window, TcpSocket& socket) {
-	window.setFramerateLimit(60);  // Cap the framerate
+void Client::gameLoop() {
+	window->setFramerateLimit(60);  // Cap the framerate
 
 	// Create a player shape and set its initial position
 	Vector2f targetPos; // Target position based on mouse
@@ -406,7 +362,7 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 
 	Clock clock; // For frame-based timing
 
-	while (window.isOpen()) {
+	while (window->isOpen()) {
 		float deltaTime = clock.restart().asSeconds(); // Time since last frame
 
 		Font font;
@@ -416,15 +372,15 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		}
 
 		Event event;
-		while (window.pollEvent(event)) {
+		while (window->pollEvent(event)) {
 			if (event.type == Event::Closed) {
-				window.close();
+				window->close();
 				return;
 			}
 		}
 
 		// Update target position to the mouse location
-		targetPos = window.mapPixelToCoords(Mouse::getPosition(window)); //convert the pixel coordinates from the mouse to world coordinates, especially if the view has been transformed
+		targetPos = window->mapPixelToCoords(Mouse::getPosition(*window)); //convert the pixel coordinates from the mouse to world coordinates, especially if the view has been transformed
 
 		// Get the current position of the player
 		Vector2f currentPos = actualPlayerShape.getPosition();
@@ -437,18 +393,18 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 		// Only move if outside the dead zone
 		if (distance > deadZoneRadius) {
 			Vector2f normalizedDirection = direction / distance; // Normalize the direction vector
-			Vector2f movement = normalizedDirection * moveSpeed * deltaTime;
-			actualPlayerShape.move(movement);
+			Vector2f movementVector = normalizedDirection * moveSpeed * deltaTime;
+			actualPlayerShape.move(movementVector);
 		}
 
 		// Clamp the player's position within the window bounds
 		Vector2f position = actualPlayerShape.getPosition();
 		float radius = actualPlayerShape.getRadius();
 
-		position.x = max(0.f, min(position.x, window.getSize().x - 2 * radius));
-		position.y = max(0.f, min(position.y, window.getSize().y - 2 * radius));
+		position.x = max(0.f, min(position.x, window->getSize().x - 2 * radius));
+		position.y = max(0.f, min(position.y, window->getSize().y - 2 * radius));
 		actualPlayerShape.setPosition(position);
-		sendPlayerPosition(socket, actualPlayerShape, movementVector); // Send the updated position of the player to the server.
+		sendPlayerPosition(movementVector); // Send the updated position of the player to the server.
 
 
 		// Receive packet from server. Check what command it is and then call that function.
@@ -458,143 +414,196 @@ void gameLoop(RenderWindow& window, TcpSocket& socket) {
 			string command;
 			receivedPacket >> command;
 
-			if (command == "PLAYER_POSITIONS") receivePlayerPositions(socket, allPlayerPositions, receivedPacket);
-			else if (command == "SPAWN") receiveRainbowData(rainbowPositions, rainbowColors, receivedPacket);
-			else if (command == "DESPAWN") deleteRainbowData(rainbowPositions, rainbowColors);
+			if (command == "PLAYER_POSITIONS") receivePlayerPositions(receivedPacket);
+			else if (command == "PLAYER_ID") receivedPacket >> playerID;
+			else if (command == "SPAWN") receiveRainbowData(receivedPacket);
+			else if (command == "DESPAWN") deleteRainbowData();
 			else if (command == "UPDATE_SCORES") updateScores(receivedPacket);
 			else cerr << "Error receiving data from socket: " << status << endl;
 		}
+		else handleErrors(status);
 
+		/*for (int i = 0; i < 2; i++) {
+			cout << " || ID: " << playerData[i].id << endl;
+			cout << " || Name: " << playerData[i].name << endl;
+			cout << " || score: " << playerData[i].score << endl;
+			cout << " || velocity: " << playerData[i].velocity.x << ", " << playerData[i].velocity.y << endl;
+			cout << " || lerpTime: " << playerData[i].lerpTime << endl;
+			cout << " || lastPosition: " << playerData[i].lastPosition.x << ", " << playerData[i].lastPosition.y << endl;
+			cout << " || position: " << playerData[i].position.x << ", " << playerData[i].position.y << endl;
+			cout << " || lastUpdateTime: " << playerData[i].lastUpdateTime << endl << endl;
+		}*/
 
 		// Clear the window and render everything
-		window.clear();
-		displayScores(window, font);
-		renderActualSelf(window, actualPlayerShape.getPosition().x, actualPlayerShape.getPosition().y);
-		renderReceivedShapes(window, allPlayerPositions); // Draw all the players (self and opponent)
-		drawRainbowBalls(window); // Draw the rainbow ball
-		window.display();
+		window->clear();
+		displayScores(font);
+		renderActualSelf(actualPlayerShape.getPosition().x, actualPlayerShape.getPosition().y);
+		renderReceivedShapes(); // Draw all the players (self and opponent)
+		drawRainbowBalls(); // Draw the rainbow ball
+		window->display();
 	}
 }
 
-void sendPlayerPosition(TcpSocket& socket, const CircleShape& actualPlayerShape, Vector2f movementVector) {
+void Client::sendPlayerPosition(Vector2f movementVector) {
 	Packet packet;
 	packet << "UPDATE_POSITION" << actualPlayerShape.getPosition().x << actualPlayerShape.getPosition().y << movementVector.x << movementVector.y;
-	if (socket.send(packet) != Socket::Done) {
-		cerr << "Failed to send player position to the server.\n";
-	}
+
+	//cout << "Send player position: " << actualPlayerShape.getPosition().x << ", " << actualPlayerShape.getPosition().y << endl;
+
+	if (socket.send(packet) != Socket::Done) cerr << "Failed to send player position to the server.\n";
 }
 
-void receivePlayerPositions(TcpSocket& socket, vector<Vector2f>& allPlayerPositions, Packet packet) {
+void Client::receivePlayerPositions(Packet packet) {
 	Clock localClock;
 
-	for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
+	for (size_t i = 0; i < playerData.size(); ++i) {
 		float x, y;
 		int id;
 		packet >> id >> x >> y;
 
+		//cout << "Received positions for ID " << id << ": " << x << ", " << y << endl;
+
 		// Interpolation Strategy:
 		// If it's a new position, interpolate towards it
-		if (id != playerID) {
-			PlayerData& player = allPlayerData[id];
-			float currentTime = localClock.getElapsedTime().asSeconds();
+		float currentTime = localClock.getElapsedTime().asSeconds();
 
-			// Interpolate from the last position to the new position based on time elapsed
-			float deltaTime = currentTime - player.lastUpdateTime;
-			player.lerpTime = min(deltaTime, 0.1f);  // Limit max time for interpolation
+		// Interpolate from the last position to the new position based on time elapsed
+		float deltaTime = currentTime - playerData[id].lastUpdateTime;
 
-			// Store the new position and update time
-			player.lastPosition = player.position;
-			player.position = { x, y };
-			player.lastUpdateTime = currentTime;
-		}
-		allPlayerPositions[id] = (Vector2f(x, y));
+
+		playerData[id].lerpTime = min(deltaTime, 0.1f);  // Limit max time for interpolation
+
+		// Store the new position and update time
+		playerData[id].id = id;
+		playerData[id].lastPosition = playerData[i].position;
+		playerData[id].position = { x, y };
+		playerData[id].lastUpdateTime = currentTime;
+
+		//cout << "Assigned positions for ID " << playerData[id].id << ": " << playerData[id].position.x << ", " << playerData[id].position.y << endl;
 	}
 }
 
-void receiveRainbowData(vector<Vector2f>& positions, vector<Color>& colors, Packet packet) {
+void Client::receiveRainbowData(Packet packet) {
 	float x, y, spawnTime;
 	Uint8 r, g, b;
 	packet >> x >> y >> r >> g >> b >> spawnTime;
-	positions.push_back(Vector2f(x, y));
-	colors.push_back(Color(r, g, b));
+	rainbowPositions.push_back(Vector2f(x, y));
+	rainbowColors.push_back(Color(r, g, b));
 	cout << "Rainbow received: " << x << ", " << y << " with spawn time: " << spawnTime << " seconds.\n";
 }
 
+void Client::deleteRainbowData() {
+	rainbowPositions.clear();
+	rainbowColors.clear();
+	cout << "Cleared rainbows\n";
+}
+
 // Function to update the scores received from the server
-void updateScores(Packet& packet) {
+void Client::updateScores(Packet& packet) {
 	int playerID, score;
 	string nameReceived;
-	memset(playerScores, 0, sizeof(playerScores));
 
 	// Decode the scores from the packet
 	while (!packet.endOfPacket()) {
 		packet >> playerID >> nameReceived >> score;
+
 		if (playerID >= 0 && playerID < 2) { // Assuming two players, adjust if needed
-			playerScores[playerID] = score;
-			playerNames[playerID] = nameReceived;
+			playerData[playerID].score = score;
+			playerData[playerID].name = nameReceived;
 		}
 	}
-	cout << playerNames[playerID] << " (ID: " << playerID << "): " << playerScores[playerID] << ", ";
+
+	cout << playerData[playerID].name << " (ID: " << playerID << "): " << playerData[playerID].score << ", ";
 }
 
-void deleteRainbowData(vector<Vector2f>& positions, vector<Color>& colors) {
-	positions.clear();
-	colors.clear();
-	cout << "Cleared rainbows\n";
+// Function to display scores at the top left of the window
+void Client::displayScores(Font& font) {
+	int yOffset = 10; // Vertical spacing between scores
+	int index = 0;
+
+	for (int i = 0; i < 2; i++) {
+		string scoreText = playerData[i].name + "'s Score: " + to_string(playerData[i].score);
+		Text scoreDisplay = createText(scoreText, font, 24, Color::White, 10, yOffset + (index * 30));
+		window->draw(scoreDisplay);
+	}
 }
-
-
 
 // Local player
-void renderActualSelf(RenderWindow& window, float x, float y) {
-	// Set up the player's shape with the given position
+void Client::renderActualSelf(float x, float y) {
+	CircleShape actualPlayerShape(CIRCLE_RADIUS);
 	actualPlayerShape.setRadius(CIRCLE_RADIUS);
 	actualPlayerShape.setFillColor(Color(128, 128, 128, 150));
 	actualPlayerShape.setOutlineThickness(CIRCLE_BORDER);
 	actualPlayerShape.setOutlineColor(Color(200, 200, 200, 150));
 	actualPlayerShape.setPosition(x, y);
-	window.draw(actualPlayerShape);
-}
-
-void renderPredictedSelf(RenderWindow& window, float x, float y) {
-	// Set up the player's shape with the given position
-	predictedPlayerShape.setRadius(CIRCLE_RADIUS);
-	predictedPlayerShape.setFillColor(Color::Green);
-	predictedPlayerShape.setOutlineThickness(CIRCLE_BORDER);
-	predictedPlayerShape.setOutlineColor(Color(250, 150, 100));
-	predictedPlayerShape.setPosition(x, y);
-	window.draw(predictedPlayerShape);
+	window->draw(actualPlayerShape);
 }
 
 // Draw positions received from server for own and other players
-void renderReceivedShapes(RenderWindow& window, const vector<Vector2f>& allPlayerPositions) {
+void Client::renderReceivedShapes() {
+	CircleShape otherPlayerShape(CIRCLE_RADIUS);
 	otherPlayerShape.setFillColor(Color::Green);
 	otherPlayerShape.setOutlineThickness(CIRCLE_BORDER);
 	otherPlayerShape.setOutlineColor(Color(250, 150, 100));
 
 	// Iterate through all positions and render only if playerID matches
-	for (size_t i = 0; i < allPlayerPositions.size(); ++i) {
+	for (size_t i = 0; i < playerData.size(); ++i) {
 		if (static_cast<int>(i) != playerID) {
-			PlayerData& player = allPlayerData[i];
+
+			//cout << "lerpTime: " << playerData[i].lerpTime << endl;
+			//cout << "lastPosition: " << playerData[i].lastPosition.x << ", " << playerData[i].lastPosition.y << endl;
+			//cout << "position: " << playerData[i].position.x << ", " << playerData[i].position.y << endl;
 
 			// Smoothly interpolate the player position based on time
-			float t = player.lerpTime;
-			Vector2f interpolatedPosition = player.lastPosition + t * (player.position - player.lastPosition);
+			float t = playerData[i].lerpTime;
+			Vector2f interpolatedPosition = playerData[i].lastPosition + t * (playerData[i].position - playerData[i].lastPosition);
 
 			otherPlayerShape.setPosition(interpolatedPosition);
-			window.draw(otherPlayerShape); // Draw opponent player
+
+			//cout << "New position set: " << otherPlayerShape.getPosition().x << ", " << otherPlayerShape.getPosition().y << endl;
+
+			window->draw(otherPlayerShape);
 		}
 		else {
-			renderPredictedSelf(window, allPlayerPositions[i].x, allPlayerPositions[i].y); // Draw self
+			renderPredictedSelf(playerData[i].position.x, playerData[i].position.y); // Draw self
 		}
 	}
 }
 
-void drawRainbowBalls(RenderWindow& window) {
+void Client::renderPredictedSelf(float x, float y) {
+	CircleShape predictedPlayerShape(CIRCLE_RADIUS);
+	predictedPlayerShape.setRadius(CIRCLE_RADIUS);
+	predictedPlayerShape.setFillColor(Color::Green);
+	predictedPlayerShape.setOutlineThickness(CIRCLE_BORDER);
+	predictedPlayerShape.setOutlineColor(Color(250, 150, 100));
+	predictedPlayerShape.setPosition(x, y);
+	window->draw(predictedPlayerShape);
+}
+
+void Client::drawRainbowBalls() {
 	for (size_t i = 0; i < rainbowPositions.size(); ++i) {
 		CircleShape rainbow(RAINBOW_RADIUS);
 		rainbow.setPosition(rainbowPositions[i]);
 		rainbow.setFillColor(rainbowColors[i]);
-		window.draw(rainbow);
+		window->draw(rainbow);
+	}
+}
+
+/* Handle any errors */
+void Client::handleErrors(Socket::Status status) {
+	switch (status) {
+	case Socket::NotReady:
+		cerr << "Socket not ready to send/receive data.\n";
+		break;
+	case Socket::Partial:
+		cerr << "Partial data sent/received.\n";
+		break;
+	case Socket::Disconnected:
+		cerr << "Socket disconnected.\n";
+		break;
+	case Socket::Error:
+	default:
+		cerr << "An unexpected socket error occurred.\n";
+		break;
 	}
 }

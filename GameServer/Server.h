@@ -22,34 +22,65 @@ constexpr float CIRCLE_RADIUS = 15.f;
 constexpr float WINDOW_WIDTH = 1700.f;
 constexpr float WINDOW_HEIGHT = 900.f;
 
-// Global variables
-extern TcpListener listener;
-extern SocketSelector selector;
-extern pair<Vector2f, Color> rainbowBall;  // Stores the rainbow ball position and color
-extern ClockType::time_point spawnTime;
-extern ClockType::time_point lastSpawnAttempt;
-extern bool running;
-extern bool hasRainbowBall;               // Flag indicating if a rainbow ball exists
+static Clock ticker;
 
-// Function declarations
-void SetupServer(unsigned short port);
-void processNewClient(TcpListener& listener, SocketSelector& selector);
-void sendFullLobbyMessage(TcpListener& listener);
-void notifyClientsOnConnection();
+// Struct to store client data
+struct ClientData {
+	unique_ptr<TcpSocket> socket;
+	Vector2f position;
+	int ID;
+	int score = 0;
+	string playerName;
 
-void processClientData(TcpSocket& client, size_t clientIndex);
-void handleDisconnection(size_t index);
+	// For prediction
+	Vector2f velocity;
+	Vector2f acceleration;
+	Clock lastUpdateTime;
+	Clock lastReceivedUpdate;
+};
 
-void trySpawnRainbowBall();
-void spawnRainbowBall();
-void checkRainbowBallTimeout();
-void despawnRainbowBall();
-void broadcastUpdatedScores();
-void broadcastToClients(Packet& packet);
+// Server class
+class Server {
+public:
+	// Constructor and Destructor
+	Server(unsigned short port = PORT);
+	~Server();
 
-void sendPlayerPositions();
+	void run();
 
-void handleErrors(Socket::Status status);
+private:
+	TcpListener listener;
+	SocketSelector selector;
+	vector<ClientData> clientData;
 
+	bool running = true;
+	bool bothPlayersConnected = false;
+	bool sent = false;
+	bool hasRainbowBall = false;
+	pair<Vector2f, Color> rainbowBall;
+	ClockType::time_point spawnTime;
+	ClockType::time_point lastSpawnAttempt = ClockType::now();
+	float smoothingFactor = 0.8f; // Apply a smoothing factor when updating velocities to reduce sudden changes caused by small inaccuracies or lag.
+	float dampingFactor = 0.95f; // Apply a damping factor to slow down abrupt velocity changes.
 
-#endif // SERVER_H
+	// Server methods
+	void processNewClient();
+	void sendFullLobbyMessage(TcpListener& listener);
+	void notifyClientsOnConnection();
+	void sendPlayerId();
+
+	void processClientData(TcpSocket& client, size_t clientIndex);
+	bool isPlayerTouchingRainbowBall(ClientData& player) const;
+
+	void handleDisconnection(size_t index);
+	void trySpawnRainbowBall();
+	void spawnRainbowBall();
+	void checkRainbowBallTimeout();
+	void despawnRainbowBall();
+	void broadcastUpdatedScores();
+	void broadcastToClients(Packet& packet);
+	void sendPlayerPositions();
+	void handleErrors(Socket::Status status);
+};
+
+#endif
