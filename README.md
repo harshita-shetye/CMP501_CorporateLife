@@ -16,3 +16,10 @@ How to run the program:
 3. You will be taken to a waiting lobby menu until a second player connects. Once the second player connects, the game will launch.
 4. Gameplay: Collide with the rainbow dot to gain 1 point. Grey shape is your actual local position, which is sent to the server. 
 Green circle shape is your predicted position which is received from the server. Red shape is the opponent's circle shape.
+
+
+SFML Version: SFML-2.6.1
+
+Link External Libraries:
+1. Debug: Properties > Linker > Input > sfml-network-d.lib;sfml-graphics-d.lib;sfml-audio-d.lib;sfml-main-d.lib;sfml-system-d.lib;sfml-window-d.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)
+2. Release: Properties > Linker > Input > sfml-network.lib;sfml-graphics.lib;sfml-audio.lib;sfml-main.lib;sfml-system.lib;sfml-window.lib;$(CoreLibraryDependencies);%(AdditionalDependencies)
