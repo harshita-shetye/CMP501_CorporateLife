@@ -39,6 +39,7 @@ void Client::createMainMenu() {
 
 	bool showError = false;
 	bool isEditingName = false;
+	bool isEditingIPv4 = false;
 
 	Font font;
 	if (!font.loadFromFile("res/comic.ttf")) {
@@ -55,25 +56,31 @@ void Client::createMainMenu() {
 				window->setVerticalSyncEnabled(true);
 			}
 
-			// Dynamically position UI elements
-			float centerX = window->getSize().x / 2;
-			float buttonWidth = 200.f;
-			float buttonHeight = 50.f;
+			// Adjust UI elements dynamically
+			Vector2u windowSize = window->getSize();
+			float centerX = windowSize.x / 2;
+			float centerY = windowSize.y / 2;
 
-			// Create UI elements
 			Text title = createText("Corporate Life", font, 50, Color(255, 215, 0), centerX - 120, 50);
 			title.setStyle(Text::Bold | Text::Underlined);
 
-			RectangleShape playButton = createButton(buttonWidth, buttonHeight, Color(100, 149, 237), centerX - buttonWidth / 2, 150);
-			RectangleShape quitButton = createButton(buttonWidth, buttonHeight, Color(178, 34, 34), centerX - buttonWidth / 2, 250);
+			// Buttons
+			float buttonWidth = 200.f, buttonHeight = 50.f;
+			RectangleShape playButton = createButton(buttonWidth, buttonHeight, Color(100, 149, 237), centerX - buttonWidth / 2, centerY - 75);
+			RectangleShape quitButton = createButton(buttonWidth, buttonHeight, Color(178, 34, 34), centerX - buttonWidth / 2, centerY + 25);
 
-			Text playText = createText("Play", font, 24, Color::White, playButton.getPosition().x + 75, playButton.getPosition().y + 10);
-			Text quitText = createText("Quit", font, 24, Color::White, quitButton.getPosition().x + 75, quitButton.getPosition().y + 10);
+			// Button Text
+			Text playText = createText("Play", font, 24, Color::White, centerX - 25, centerY - 65);
+			Text quitText = createText("Quit", font, 24, Color::White, centerX - 25, centerY + 35);
 
-			Text prompt = createText("Enter your name:", font, 24, Color::White, 50, 350);
-			Text playerNameText = createText(playerName.empty() ? "Click to enter name" : playerName, font, 24, isEditingName ? Color::White : Color::Cyan, 250, 350);
+			// Prompts and Input
+			Text namePrompt = createText("Enter your name:", font, 24, Color::White, centerX - 200, centerY + 100);
+			Text nameInput = createText(playerName.empty() ? "Click to enter name" : playerName, font, 24, isEditingName ? Color::White : Color::Cyan, centerX, centerY + 100);
 
-			Text errorText = createText("Name cannot be empty!", font, 20, Color::Red, 50, 400);
+			Text IPv4Prompt = createText("Enter IPv4:", font, 24, Color::White, centerX - 200, centerY + 150);
+			Text IPv4Input = createText(SERVER.empty() ? "Click to enter IPv4" : SERVER, font, 24, isEditingIPv4 ? Color::White : Color::Cyan, centerX, centerY + 150);
+
+			Text errorText = createText("Name and IPv4 cannot be empty! >:(", font, 20, Color::Red, centerX - 200, centerY + 200);
 
 			// Update button colors for hover effects
 			Vector2i mousePos = Mouse::getPosition(*window);
@@ -94,7 +101,7 @@ void Client::createMainMenu() {
 					Vector2f mousePosition(event.mouseButton.x, event.mouseButton.y);
 					if (playButton.getGlobalBounds().contains(mousePosition)) {
 
-						if (playerName.empty()) {
+						if (playerName.empty() || SERVER.empty()) {
 							showError = true;
 						}
 						else {
@@ -140,28 +147,53 @@ void Client::createMainMenu() {
 						window = nullptr;
 						return;
 					}
-					else if (playerNameText.getGlobalBounds().contains(mousePosition)) {
+					else if (nameInput.getGlobalBounds().contains(mousePosition)) {
 						isEditingName = true;
+						isEditingIPv4 = false;
 						playerName.clear();
+					}
+					else if (IPv4Input.getGlobalBounds().contains(mousePosition)) {
+						isEditingIPv4 = true;
+						isEditingName = false;
+						SERVER.clear();
 					}
 					else {
 						isEditingName = false;
+						isEditingIPv4 = false;
 					}
 				}
 
-				if (event.type == Event::TextEntered && isEditingName) {
-					if (event.text.unicode == '\b') { // Handle backspace
-						if (!playerName.empty()) {
-							playerName.pop_back();
+				if (event.type == Event::TextEntered) {
+					if (isEditingName) {
+						// Handle playerName input
+						if (event.text.unicode == '\b') { // Handle backspace
+							if (!playerName.empty()) {
+								playerName.pop_back();
+							}
+						}
+						else if (event.text.unicode == '\r') { // Handle Enter key
+							isEditingName = false; // Finish editing
+						}
+						else if (event.text.unicode < 128) { // Append valid ASCII characters
+							playerName += static_cast<char>(event.text.unicode);
 						}
 					}
-					else if (event.text.unicode == '\r') { // Handle Enter key
-						isEditingName = false;
-					}
-					else if (event.text.unicode < 128) { // Append ASCII characters
-						playerName += static_cast<char>(event.text.unicode);
+					else if (isEditingIPv4) {
+						// Handle SERVER input
+						if (event.text.unicode == '\b') { // Handle backspace
+							if (!SERVER.empty()) {
+								SERVER.pop_back();
+							}
+						}
+						else if (event.text.unicode == '\r') { // Handle Enter key
+							isEditingIPv4 = false; // Finish editing
+						}
+						else if (event.text.unicode < 128) { // Append valid ASCII characters
+							SERVER += static_cast<char>(event.text.unicode);
+						}
 					}
 				}
+
 			}
 
 			// Draw the main menu UI
@@ -171,8 +203,10 @@ void Client::createMainMenu() {
 			window->draw(playText);
 			window->draw(quitButton);
 			window->draw(quitText);
-			window->draw(prompt);
-			window->draw(playerNameText);
+			window->draw(namePrompt);
+			window->draw(nameInput);
+			window->draw(IPv4Prompt);
+			window->draw(IPv4Input);
 			if (showError) {
 				window->draw(errorText);
 			}
@@ -316,7 +350,7 @@ void Client::startGame() {
 
 	// Setup window
 	window = new RenderWindow(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Corporate Life", Style::Default);
-	window->setVerticalSyncEnabled(true);
+	//window->setVerticalSyncEnabled(true);
 	if (!window) {
 		cerr << "Failed to create window for the game!" << endl;
 		return;
@@ -357,7 +391,7 @@ void Client::gameLoop() {
 
 	// Create a player shape and set its initial position
 	Vector2f targetPos; // Target position based on mouse
-	float moveSpeed = 400.f; // Speed of movement in pixels per second
+	float moveSpeed = 300.f; // Speed of movement in pixels per second
 	const float deadZoneRadius = 5.f; // Dead zone radius to prevent jittering
 
 	Clock clock; // For frame-based timing
@@ -393,7 +427,7 @@ void Client::gameLoop() {
 		// Only move if outside the dead zone
 		if (distance > deadZoneRadius) {
 			Vector2f normalizedDirection = direction / distance; // Normalize the direction vector
-			Vector2f movementVector = normalizedDirection * moveSpeed * deltaTime;
+			movementVector = normalizedDirection * moveSpeed * deltaTime;
 			actualPlayerShape.move(movementVector);
 		}
 
@@ -404,7 +438,16 @@ void Client::gameLoop() {
 		position.x = max(0.f, min(position.x, window->getSize().x - 2 * radius));
 		position.y = max(0.f, min(position.y, window->getSize().y - 2 * radius));
 		actualPlayerShape.setPosition(position);
+
 		sendPlayerPosition(movementVector); // Send the updated position of the player to the server.
+
+
+		// Check sleep duration - 120 ms
+		/*Clock clock;
+		auto start = chrono::steady_clock::now();
+		this_thread::sleep_for(chrono::milliseconds(100));
+		auto end = chrono::steady_clock::now();
+		auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);*/
 
 
 		// Receive packet from server. Check what command it is and then call that function.
@@ -423,15 +466,27 @@ void Client::gameLoop() {
 		}
 		else handleErrors(status);
 
+		// If no update received for 50 ms, then set position to actual player shape.
+		if (playerData[playerID].lastReceivedUpdate.getElapsedTime().asMilliseconds() > 50) {
+			cout << "Setting to actual position.\n";
+
+			Vector2f currentPosition = predictedPlayerShape.getPosition();
+			Vector2f targetPosition = actualPlayerShape.getPosition();
+			float interpolationSpeed = 0.3f;
+
+			Vector2f interpolatedPosition = applyInterpolation(currentPosition, targetPosition, interpolationSpeed);
+
+			// Update the predicted position with the interpolated value
+			predictedPlayerShape.setPosition(interpolatedPosition);
+
+			// playerData[playerID].lastReceivedUpdate.restart();
+		}
+
 		/*for (int i = 0; i < 2; i++) {
 			cout << " || ID: " << playerData[i].id << endl;
 			cout << " || Name: " << playerData[i].name << endl;
 			cout << " || score: " << playerData[i].score << endl;
-			cout << " || velocity: " << playerData[i].velocity.x << ", " << playerData[i].velocity.y << endl;
-			cout << " || lerpTime: " << playerData[i].lerpTime << endl;
-			cout << " || lastPosition: " << playerData[i].lastPosition.x << ", " << playerData[i].lastPosition.y << endl;
 			cout << " || position: " << playerData[i].position.x << ", " << playerData[i].position.y << endl;
-			cout << " || lastUpdateTime: " << playerData[i].lastUpdateTime << endl << endl;
 		}*/
 
 		// Clear the window and render everything
@@ -444,42 +499,37 @@ void Client::gameLoop() {
 	}
 }
 
+Vector2f Client::applyInterpolation(Vector2f start, Vector2f end, float speed) {
+	Vector2f interpolatedPosition = {
+				start.x + speed * (end.x - start.x),
+				start.y + speed * (end.y - start.y)
+	};
+	return interpolatedPosition;
+}
+
 void Client::sendPlayerPosition(Vector2f movementVector) {
 	Packet packet;
 	packet << "UPDATE_POSITION" << actualPlayerShape.getPosition().x << actualPlayerShape.getPosition().y << movementVector.x << movementVector.y;
 
-	//cout << "Send player position: " << actualPlayerShape.getPosition().x << ", " << actualPlayerShape.getPosition().y << endl;
+	//cout << "Send: " << actualPlayerShape.getPosition().x << ", " << actualPlayerShape.getPosition().y << " || " << movementVector.x << ", " << movementVector.y << endl;
 
 	if (socket.send(packet) != Socket::Done) cerr << "Failed to send player position to the server.\n";
 }
 
 void Client::receivePlayerPositions(Packet packet) {
-	Clock localClock;
-
 	for (size_t i = 0; i < playerData.size(); ++i) {
+		long long timestamp;
 		float x, y;
 		int id;
-		packet >> id >> x >> y;
+		packet >> timestamp >> id >> x >> y;
 
-		//cout << "Received positions for ID " << id << ": " << x << ", " << y << endl;
-
-		// Interpolation Strategy:
-		// If it's a new position, interpolate towards it
-		float currentTime = localClock.getElapsedTime().asSeconds();
-
-		// Interpolate from the last position to the new position based on time elapsed
-		float deltaTime = currentTime - playerData[id].lastUpdateTime;
-
-
-		playerData[id].lerpTime = min(deltaTime, 0.1f);  // Limit max time for interpolation
-
-		// Store the new position and update time
+		// Update the last received timestamp
+		playerData[id].lastReceivedTimestamp = timestamp;
+		playerData[id].lastReceivedUpdate.restart();
 		playerData[id].id = id;
-		playerData[id].lastPosition = playerData[i].position;
-		playerData[id].position = { x, y };
-		playerData[id].lastUpdateTime = currentTime;
+		playerData[id].position = applyInterpolation(playerData[id].position, Vector2f(x, y), 0.3); //{ x, y };
 
-		//cout << "Assigned positions for ID " << playerData[id].id << ": " << playerData[id].position.x << ", " << playerData[id].position.y << endl;
+		//cout << "Received: " << x << ", " << y << " || " << playerData[playerID].lastReceivedUpdate.getElapsedTime().asMilliseconds() << endl;
 	}
 }
 
@@ -518,12 +568,11 @@ void Client::updateScores(Packet& packet) {
 
 // Function to display scores at the top left of the window
 void Client::displayScores(Font& font) {
-	int yOffset = 10; // Vertical spacing between scores
-	int index = 0;
+	int yOffset = 10;
 
 	for (int i = 0; i < 2; i++) {
 		string scoreText = playerData[i].name + "'s Score: " + to_string(playerData[i].score);
-		Text scoreDisplay = createText(scoreText, font, 24, Color::White, 10, yOffset + (index * 30));
+		Text scoreDisplay = createText(scoreText, font, 24, Color::White, 10, yOffset + (i * 30));
 		window->draw(scoreDisplay);
 	}
 }
@@ -542,23 +591,14 @@ void Client::renderActualSelf(float x, float y) {
 // Draw positions received from server for own and other players
 void Client::renderReceivedShapes() {
 	CircleShape otherPlayerShape(CIRCLE_RADIUS);
-	otherPlayerShape.setFillColor(Color::Green);
+	otherPlayerShape.setFillColor(Color::Red);
 	otherPlayerShape.setOutlineThickness(CIRCLE_BORDER);
 	otherPlayerShape.setOutlineColor(Color(250, 150, 100));
 
 	// Iterate through all positions and render only if playerID matches
 	for (size_t i = 0; i < playerData.size(); ++i) {
 		if (static_cast<int>(i) != playerID) {
-
-			//cout << "lerpTime: " << playerData[i].lerpTime << endl;
-			//cout << "lastPosition: " << playerData[i].lastPosition.x << ", " << playerData[i].lastPosition.y << endl;
-			//cout << "position: " << playerData[i].position.x << ", " << playerData[i].position.y << endl;
-
-			// Smoothly interpolate the player position based on time
-			float t = playerData[i].lerpTime;
-			Vector2f interpolatedPosition = playerData[i].lastPosition + t * (playerData[i].position - playerData[i].lastPosition);
-
-			otherPlayerShape.setPosition(interpolatedPosition);
+			otherPlayerShape.setPosition(playerData[i].position.x, playerData[i].position.y);
 
 			//cout << "New position set: " << otherPlayerShape.getPosition().x << ", " << otherPlayerShape.getPosition().y << endl;
 

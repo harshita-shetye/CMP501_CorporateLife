@@ -7,6 +7,9 @@
 #include <unordered_map>
 #include <vector>
 #include <string>
+#include <deque>
+#include <random>
+#include <thread>
 
 using namespace sf;
 using namespace std;
@@ -23,19 +26,17 @@ struct Player {
 	int id;
 	CircleShape shape;
 	Vector2f position;
-	Vector2f lastPosition;
-	Vector2f velocity;
-	float lerpTime;
-	float lastUpdateTime;
 	string name;
 	int score;
+	long long lastReceivedTimestamp = -1;
+	Clock lastReceivedUpdate;
 };
 
 class Client {
 private:
 
 	// Constants
-	const string SERVER = "127.0.0.1";
+	string SERVER;
 	const unsigned short PORT = 5555;
 
 	const float WINDOW_WIDTH = 1700.f;
@@ -50,6 +51,7 @@ private:
 	TcpSocket socket;
 
 	// Game state
+	Clock ticker;
 	int playerID;
 	unordered_map<int, Player> playerData;
 	GameState currentState;
@@ -80,6 +82,7 @@ private:
 	void receiveInitialPosition();
 
 	void gameLoop();
+	Vector2f applyInterpolation(Vector2f start, Vector2f end, float speed);
 	void sendPlayerPosition(Vector2f movementVector);
 	void receivePlayerPositions(Packet packet);
 	void receiveRainbowData(Packet packet);

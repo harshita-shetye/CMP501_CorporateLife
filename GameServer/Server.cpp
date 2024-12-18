@@ -16,7 +16,7 @@ Server::Server(unsigned short port) {
 
 	// Attemp to bind the TCP listener to the specified port. If fail, then set the server's running flag to false and exit.
 	if (listener.listen(port) != Socket::Done) {
-		cerr << "Could not start on the port: " << port << endl;
+		handleErrors("Server", listener.listen(port));
 		running = false;
 		return;
 	}
@@ -31,7 +31,7 @@ void Server::run() {
 	while (running) {
 
 		// Check for any incoming events with 10 ms timeout
-		if (selector.wait(milliseconds(10))) {
+		if (selector.wait(milliseconds(20))) {
 
 			// If socket is ready, then process the new client connection
 			if (selector.isReady(listener)) {
@@ -53,9 +53,10 @@ void Server::run() {
 		// If both the clients are connected
 		if (bothPlayersConnected) {
 
-			// Send the updated player positions every 20 ms. This includes the predicted positins. Restart the clock after sending the data.
-			if (ticker.getElapsedTime().asMilliseconds() > 20) {
+			// Send the updated player positions every 30 ms. This includes the predicted positins. Restart the clock after sending the data.
+			if (ticker.getElapsedTime().asMilliseconds() > 30) {
 				sendPlayerPositions();
+				cout << "Sent positions at " << ticker.getElapsedTime().asMilliseconds() << endl;
 				ticker.restart();
 			}
 
@@ -114,13 +115,14 @@ void Server::processNewClient() {
 	}
 }
 
+// Function called if more than 2 players try to connect. IT gives a new window which says that the server is full. Player can then go back and exit.
 void Server::sendFullLobbyMessage(TcpListener& listener) {
-	auto tempSocket = make_unique<TcpSocket>();
-	if (listener.accept(*tempSocket) == Socket::Done) {
+	auto extraPlayer = make_unique<TcpSocket>();
+	if (listener.accept(*extraPlayer) == Socket::Done) {
 		Packet packet;
-		packet << "The lobby is full. Try again later.";
-		tempSocket->send(packet);
-		tempSocket->disconnect();
+		packet << "The lobby is full. Sorry!";
+		extraPlayer->send(packet);
+		extraPlayer->disconnect();
 	}
 }
 
@@ -139,9 +141,7 @@ void Server::notifyClientsOnConnection() {
 		startPacket << "Both players connected. Starting the game!";
 
 		for (const auto& client : clientData) {
-			if (client.socket->send(startPacket) != Socket::Done) {
-				cerr << "Failed to send start game packet to a client.\n";
-			}
+			if (client.socket->send(startPacket) != Socket::Done) handleErrors("notifyClientsOnConnection", client.socket->send(startPacket));
 		}
 
 		// Set this boolean to true to perform further actions in run()
@@ -156,12 +156,8 @@ void Server::sendPlayerId() {
 	client1 << "PLAYER_ID" << clientData[0].ID;
 	client2 << "PLAYER_ID" << clientData[1].ID;
 
-	if (clientData[0].socket->send(client1) != Socket::Done) {
-		cerr << "Failed to send player positions to a client.\n";
-	}
-	if (clientData[1].socket->send(client2) != Socket::Done) {
-		cerr << "Failed to send player positions to a client.\n";
-	}
+	if (clientData[0].socket->send(client1) != Socket::Done) handleErrors("sendPlayerId1", clientData[0].socket->send(client1));
+	if (clientData[1].socket->send(client2) != Socket::Done) handleErrors("sendPlayerId2", clientData[1].socket->send(client2));
 	sent = true;
 }
 
@@ -190,25 +186,19 @@ void Server::processClientData(TcpSocket& client, size_t clientIndex) {
 			float x, y, moveX, moveY;
 			packet >> x >> y >> moveX >> moveY;
 
-			//cout << "Received: " << x << ", " << y << endl;
-
 			auto& clientRef = clientData[clientIndex];
 			Vector2f newPosition = { x, y };
-			Vector2f movementVector = { moveX, moveY };
+			clientRef.movementVector = { moveX, moveY };
 			Time elapsed = clientRef.lastUpdateTime.getElapsedTime();
 			clientRef.lastUpdateTime.restart();
+			clientRef.lastReceivedUpdate.restart(); // UPDATE_POSITION command received
 
-			if (elapsed.asSeconds() > 0) {
-				Vector2f newVelocity = movementVector / elapsed.asSeconds();
-				clientRef.acceleration = (newVelocity - clientRef.velocity) / elapsed.asSeconds();
-				clientRef.velocity = smoothingFactor * clientRef.velocity + (1.0f - smoothingFactor) * newVelocity;
-				clientRef.velocity *= dampingFactor;
-			}
-			else {
-				cout << "No movement detected from Client " << clientIndex;
-				clientRef.velocity = { 0.0f, 0.0f };
-				clientRef.acceleration = { 0.0f, 0.0f };
-			}
+			Vector2f newVelocity = clientRef.movementVector / elapsed.asSeconds();
+			clientRef.acceleration = (newVelocity - clientRef.velocity) / elapsed.asSeconds();
+			clientRef.velocity = smoothingFactor * clientRef.velocity + (1.0f - smoothingFactor) * newVelocity;
+			//clientRef.velocity *= dampingFactor;
+
+			//cout << "Received for Client " << clientIndex << ": " << x << ", " << y << " || " << gameTime.getElapsedTime().asSeconds() << " || V" << clientRef.velocity.x << ", " << clientRef.velocity.y << endl;
 
 			// Check for collision with the rainbow ball
 			if (hasRainbowBall && isPlayerTouchingRainbowBall(clientRef)) {
@@ -218,48 +208,70 @@ void Server::processClientData(TcpSocket& client, size_t clientIndex) {
 				broadcastUpdatedScores();  // Send updated scores to both players
 			}
 
+			// Store the new position in the deque
+			PositionSnapshot snapshot = { newPosition, chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count() };
+			auto& positionHistory = clientRef.positionHistory;
+			positionHistory.push_back(snapshot);
+
+			// Initialize or update the position history
+			if (positionHistory.empty()) {
+				// Add the first snapshot twice to initialize with valid data
+				positionHistory.push_back(snapshot);
+				positionHistory.push_back(snapshot);
+			}
+			else if (positionHistory.size() < 2) {
+				// Add one more snapshot to allow predictions
+				positionHistory.push_back(snapshot);
+			}
+			else {
+				// Regular update: Add the snapshot and ensure the size limit
+				positionHistory.push_back(snapshot);
+				if (positionHistory.size() > 4) {
+					positionHistory.pop_front();
+				}
+			}
+
 			clientRef.position = newPosition;
-			clientData[clientIndex].position = { x, y };
 		}
 	}
 	else if (status == Socket::Disconnected) {
 		handleDisconnection(clientIndex);
 	}
 	else {
-		handleErrors(status);
+		handleErrors("processClientData", status);
 	}
 }
 
 bool Server::isPlayerTouchingRainbowBall(ClientData& player) const {
+
+	// We take player.position (player's position and rainbowBall.first to access the Vecfor2f, which is in the first position of the pair.
+	// Then, we use the distance formula to get the distance between the player's shape and rainbow ball shape. Distance = sqrt[(x2 - x1)^2 + (y2 - y1)^2], where 2 represents player and 1 is rainbow ball
+
 	float distance = sqrt(pow(player.position.x - rainbowBall.first.x, 2) + pow(player.position.y - rainbowBall.first.y, 2));
-	return distance < CIRCLE_RADIUS;  // Check if the player is within range of the rainbow ball's radius
+	return distance < RAINBOW_RADIUS;  // Check if the player is within range of the rainbow ball's radius, which is set to 17 since player shape is 15. Added a little outer padding/ The rainbow ball's actual raidus is 7 on cleint's screen.
 }
 
+// This function is called if the player touches the present rainbow ball. It creates an "UPDATE_SCORES" command in the packet with the updated scores for both the clients.
 void Server::broadcastUpdatedScores() {
 	Packet packet;
 	packet << "UPDATE_SCORES";
 	for (const auto& client : clientData) {
-		packet << client.ID << client.playerName << client.score;  // Include player name
-		cout << "Client " << client.ID << " (" << client.playerName << ") score updated: " << client.score << "\n";
+		packet << client.ID << client.playerName << client.score;
+		//cout << "Client " << client.ID << " (" << client.playerName << ") score updated: " << client.score << "\n";
 	}
 	broadcastToClients(packet);  // Send the updated scores to all clients
 }
 
+// The packet is then sent to each client. Packet contains updated scores for both clients.
 void Server::broadcastToClients(Packet& packet) {
 	for (const auto& client : clientData) {
-		if (client.socket->send(packet) != Socket::Done) {
-			cerr << "Failed to send packet to a client.\n";
-		}
-		else {
-			//cout << "Sent packet to client " << client.ID << "\n";
-		}
+		if (client.socket->send(packet) != Socket::Done) handleErrors("broadcastToClients", client.socket->send(packet));
 	}
 }
 
+// Incase a player disconnects,
 void Server::handleDisconnection(size_t index) {
 	cout << "Client disconnected: " << clientData[index].socket->getRemoteAddress() << "\n";
-	selector.remove(*clientData[index].socket);
-	clientData.erase(clientData.begin() + index);
 	bothPlayersConnected = (clientData.size() == 2);
 	sent = false;
 	running = false;
@@ -269,83 +281,115 @@ void Server::handleDisconnection(size_t index) {
 	cout << "Shutting down server since the player has disconnected. Please restart to play again.\n";
 }
 
-/* Process outgoing packets */
-void Server::sendPlayerPositions() {
-	Packet packet;
-	packet << "PLAYER_POSITIONS";
-	Vector2f predictedPosition;
 
+//------- ------- ------- HANDLE PREDICTION LOGIC AND SEND CLIENTS THE PREDICTED POSITIONS ------ ------- -------//
+
+void Server::predictedPosition(const ClientData& client) {
 	// Player ID + positions
-	for (const auto& client : clientData) {
+	for (auto& client : clientData) {
+		Vector2f predictedPosition = client.position; // Default to last known position
 
-		// Predict the next position
-		Time elapsed = ticker.getElapsedTime();
-		float elapsedSeconds = min(elapsed.asSeconds(), 0.2f); // Cap extrapolation to 200 ms. Prevent predictions from drifting too far if updates are delayed. Define a maximum extrapolation time (e.g., 200 ms).
+		// Predict the next position if enough data is available
+		if (client.positionHistory.size() >= 2) {
+			const PositionSnapshot& lastPosition = client.positionHistory.back();
+			const PositionSnapshot& secondLastPosition = client.positionHistory[client.positionHistory.size() - 2];
 
-		// Predict using velocity and acceleration. Before sending predicted positions, check if the last update was recent.
-		if (client.lastReceivedUpdate.getElapsedTime().asSeconds() > 1.0f) { // <=1 or > 1?
-			// Prediction using velocity and acceleration
-			predictedPosition += (client.velocity * elapsedSeconds)
-				+ (0.5f * client.acceleration * elapsedSeconds * elapsedSeconds);
+			// Calculate velocity (last two positions)
+			float timeDelta = (lastPosition.timestamp - secondLastPosition.timestamp) / 1000.0f; // Convert ms to seconds
+			if (timeDelta > 0.0f) {
+				Vector2f velocity = (lastPosition.position - secondLastPosition.position) / timeDelta;
+
+				// Predict based on velocity and elapsed time
+				float predictionTime = 2.f * timeDelta; // ticker.getElapsedTime().asSeconds();
+				predictedPosition = lastPosition.position + (client.velocity * 2.5f) * predictionTime;
+			}
+			else {
+				// Not enough data, use last known position
+				client.predictedPosition = client.position;
+			}
 		}
-		else {
-			// Send last known position if updates are too old
-			//predictedPosition += movementVector * elapsedSeconds; // or use velocity to predict
-			packet << client.ID << client.position.x << client.position.y;
-		}
-		//Apply smoothing to reduce jitter
+		else client.predictedPosition = client.position;
+
+		// Apply smoothing to avoid sudden jumps
 		predictedPosition = smoothingFactor * client.position + (1.0f - smoothingFactor) * predictedPosition;
 
-		float maxDrift = 50.f; // Maximum allowable drift
+		// Limit drift
+		float maxDrift = 100.0f; // Maximum allowable drift
 		if (abs(predictedPosition.x - client.position.x) > maxDrift ||
 			abs(predictedPosition.y - client.position.y) > maxDrift) {
 			predictedPosition = client.position; // Revert to last known position
 		}
 
-		float latency = client.lastReceivedUpdate.getElapsedTime().asSeconds();
-		predictedPosition += client.velocity * latency +
-			0.5f * client.acceleration * latency * latency;
 
-		packet << client.ID << predictedPosition.x << predictedPosition.y;
-		//cout << "Send for ID " << client.ID << " Predicted: " << predictedPosition.x << ", " << predictedPosition.y << endl;
+		//cout << "Predicted for Client " << client.ID << ": " << predictedPosition.x << ", " << predictedPosition.y << " || " << gameTime.getElapsedTime().asSeconds() << " || V" << client.velocity.x << ", " << client.velocity.y << endl;
+
+		client.predictedPosition.x = predictedPosition.x;
+		client.predictedPosition.y = predictedPosition.y;
+	}
+}
+
+// Send PLAYER_POSITIONS command to the client along with the predicted positions and the current timestamp
+void Server::sendPlayerPositions() {
+	Packet packet;
+	packet << "PLAYER_POSITIONS";
+
+	// Timestamp in milliseconds (ms)
+	auto now = chrono::high_resolution_clock::now();
+	auto timestamp = chrono::duration_cast<chrono::milliseconds>(now.time_since_epoch()).count();
+
+	// Timestamp + Player ID + positions
+	for (const auto& client : clientData) {
+		predictedPosition(client);
+		packet << timestamp << client.ID << client.predictedPosition.x << client.predictedPosition.y;
+
+		//cout << timestamp << " Send for ID " << client.ID << " Predicted: " << predictedPosition.x << ", " << predictedPosition.y << endl;
 	}
 
 	for (auto& client : clientData) {
-		if (client.socket->send(packet) != Socket::Done) {
-			cerr << "Failed to send player positions to a client.\n";
-		}
+		if (client.socket->send(packet) != Socket::Done) handleErrors("sendPlayerPositions", client.socket->send(packet));
 	}
 }
 
-/* Spawn rainbow ball */
+
+//------- ------- ------- ------- RAINBOW BALL SPAWN & DESPAWN LOGIC ------  ------ ------- -------//
+
+// Check if it's been 5 seconds since the last rainbow ball spawn time. If yes, then spawn a new one
 void Server::trySpawnRainbowBall() {
-	if (chrono::duration_cast<chrono::seconds>(ClockType::now() - lastSpawnAttempt).count() >= 5) {
+	if (chrono::duration_cast<chrono::seconds>(ClockType::now() - rainbowSpawnTime).count() >= 5) {
 		spawnRainbowBall();
-		lastSpawnAttempt = ClockType::now();
 	}
 }
 
+// Once 5 seconds have passed, a new random location (within the window bounds) and random colour will be created to be sent to the client. 
 void Server::spawnRainbowBall() {
-	Vector2f position(rand() % static_cast<int>(WINDOW_WIDTH - CIRCLE_RADIUS * 2), rand() % static_cast<int>(WINDOW_HEIGHT - CIRCLE_RADIUS * 2));
-	Color color(rand() % 256, rand() % 256, rand() % 256);
+
+	// Random width and height. We multiply radius by 2 and subtract it to make sure that the rainbow ball appears within the boundaries
+	Vector2f position(rand() % (int)(WINDOW_WIDTH - (RAINBOW_RADIUS * 2)), rand() % (int)(WINDOW_HEIGHT - (RAINBOW_RADIUS * 2)));
+	Color color(rand() % 256, rand() % 256, rand() % 256); // Random number generated from 0 - 255
+
+	// Set up the rainbow ball pair
 	rainbowBall = { position, color };
-	hasRainbowBall = true;
-	spawnTime = ClockType::now();
-	float spawnTimeSeconds = chrono::duration<float>(spawnTime.time_since_epoch()).count(); // Convert spawn time to a float representing seconds since the epoch
+	hasRainbowBall = true; // So that a despawn signal can be sent later
+	rainbowSpawnTime = ClockType::now(); // Reset the spawn time (5 seconds before it despawns)
+
+	float spawnTimeSeconds = chrono::duration<float>(rainbowSpawnTime.time_since_epoch()).count(); // Convert spawn time to float in seconds to timestamp it's spawn time
 
 	Packet packet;
 	packet << "SPAWN" << position.x << position.y << static_cast<Uint8>(color.r) << static_cast<Uint8>(color.g) << static_cast<Uint8>(color.b) << spawnTimeSeconds;
 	cout << "Spawn Rainbow at " << position.x << ", " << position.y << ". Time: " << spawnTimeSeconds << " seconds.\n";
+
+	// Send rainbow ball packet to the clients
 	broadcastToClients(packet);
 }
 
-/* Despawn rainbow ball */
+// Checks if 5 seconds have passed. If yes, then a despawn signail will be sent to the client
 void Server::checkRainbowBallTimeout() {
-	if (chrono::duration_cast<chrono::seconds>(ClockType::now() - spawnTime).count() >= 5) {
+	if (chrono::duration_cast<chrono::seconds>(ClockType::now() - rainbowSpawnTime).count() >= 5) {
 		despawnRainbowBall();
 	}
 }
 
+// Send a DESPAWN command to the client to signal despawning the rainbow ball
 void Server::despawnRainbowBall() {
 	hasRainbowBall = false;
 	Packet packet;
@@ -353,24 +397,30 @@ void Server::despawnRainbowBall() {
 	broadcastToClients(packet);
 }
 
-/* Handle any errors */
-void Server::handleErrors(Socket::Status status) {
+
+//------- ------- ------- ------- HANDLE ALL THE ERRORS ------  ------ ------- -------//
+
+// Handles all the errors. Format --> FunctionName: Error encountered
+void Server::handleErrors(string func, Socket::Status status) {
 	switch (status) {
 	case Socket::NotReady:
-		cerr << "Socket not ready to send/receive data.\n";
+		cerr << func << ": Socket not ready to send/receive data.\n";
 		break;
 	case Socket::Partial:
-		cerr << "Partial data sent/received.\n";
+		cerr << func << ": Partial data sent/received.\n";
 		break;
 	case Socket::Disconnected:
-		cerr << "Socket disconnected.\n";
+		cerr << func << ": Socket disconnected.\n";
 		break;
 	case Socket::Error:
 	default:
-		cerr << "An unexpected socket error occurred.\n";
+		cerr << func << ": An unexpected socket error occurred.\n";
 		break;
 	}
 }
+
+
+//------- ------- ------- ------- DECONSTRUCTOR ------ ------  ------ ------- -------//
 
 // Destructor  -> Clean up the Server
 Server::~Server() {
