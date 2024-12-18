@@ -42,9 +42,7 @@ struct ClientData {
 	// For prediction
 	Vector2f movementVector;
 	Vector2f velocity;
-	Vector2f acceleration;
 	Clock lastUpdateTime;
-	Clock lastReceivedUpdate;
 	Vector2f predictedPosition;
 
 	deque<PositionSnapshot> positionHistory; // Stores last 4 positions with timestamps
@@ -70,7 +68,7 @@ private:
 	bool hasRainbowBall = false;
 	pair<Vector2f, Color> rainbowBall;
 	ClockType::time_point rainbowSpawnTime;
-	float smoothingFactor = 0.5f; // Apply a smoothing factor when updating velocities to reduce sudden changes caused by small inaccuracies or lag.
+	float smoothingFactor = 0.6f; // Apply a smoothing factor when updating velocities to reduce sudden changes caused by small inaccuracies or lag.
 	float dampingFactor = 0.9f; // Apply a damping factor to slow down abrupt velocity changes.
 
 	// Server methods

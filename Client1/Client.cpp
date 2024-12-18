@@ -41,6 +41,7 @@ void Client::createMainMenu() {
 	bool isEditingName = false;
 	bool isEditingIPv4 = false;
 
+	// Loading the font
 	Font font;
 	if (!font.loadFromFile("res/comic.ttf")) {
 		cerr << "Failed to load font!" << endl;
@@ -61,7 +62,7 @@ void Client::createMainMenu() {
 			float centerX = windowSize.x / 2;
 			float centerY = windowSize.y / 2;
 
-			Text title = createText("Corporate Life", font, 50, Color(255, 215, 0), centerX - 120, 50);
+			Text title = createText("Eat The Dots", font, 50, Color(255, 215, 0), centerX - 180, 50);
 			title.setStyle(Text::Bold | Text::Underlined);
 
 			// Buttons
@@ -213,8 +214,6 @@ void Client::createMainMenu() {
 			window->display();
 		}
 		else if (currentState == GameState::LobbyFull) {
-			// Lobby Full Screen Logic
-			// Create a screen informing the user the lobby is full
 
 			Font font;
 			if (!font.loadFromFile("res/comic.ttf")) {
@@ -296,6 +295,7 @@ RectangleShape Client::createButton(float width, float height, const Color& colo
 	return button;
 }
 
+
 void Client::displayWaitingMessage() {
 	// Create font
 	Font font;
@@ -346,16 +346,16 @@ void Client::handleWaitingState() {
 
 void Client::startGame() {
 
+	// Get the spawn position
 	receiveInitialPosition();
 
 	// Setup window
-	window = new RenderWindow(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Corporate Life", Style::Default);
-	//window->setVerticalSyncEnabled(true);
+	window = new RenderWindow(VideoMode(WINDOW_WIDTH, WINDOW_HEIGHT), "Eat The Dots", Style::Default);
+	window->setVerticalSyncEnabled(true);
 	if (!window) {
 		cerr << "Failed to create window for the game!" << endl;
 		return;
 	}
-
 	gameLoop();
 }
 
@@ -367,6 +367,7 @@ void Client::receiveInitialPosition() {
 	float x, y;
 	int spawnID;
 
+	// If the command is PLAYER_POSITIONS, then we get the spawn position first time
 	if (socket.receive(positionPacket) == Socket::Done) {
 		positionPacket >> command;
 		if (command == "PLAYER_POSITIONS") {
@@ -391,7 +392,7 @@ void Client::gameLoop() {
 
 	// Create a player shape and set its initial position
 	Vector2f targetPos; // Target position based on mouse
-	float moveSpeed = 300.f; // Speed of movement in pixels per second
+	float moveSpeed = 400.f; // Speed of movement in pixels per second
 	const float deadZoneRadius = 5.f; // Dead zone radius to prevent jittering
 
 	Clock clock; // For frame-based timing
@@ -414,7 +415,7 @@ void Client::gameLoop() {
 		}
 
 		// Update target position to the mouse location
-		targetPos = window->mapPixelToCoords(Mouse::getPosition(*window)); //convert the pixel coordinates from the mouse to world coordinates, especially if the view has been transformed
+		targetPos = window->mapPixelToCoords(Mouse::getPosition(*window)); //convert the pixel coordinates from the mouse to world coordinates
 
 		// Get the current position of the player
 		Vector2f currentPos = actualPlayerShape.getPosition();
@@ -441,15 +442,6 @@ void Client::gameLoop() {
 
 		sendPlayerPosition(movementVector); // Send the updated position of the player to the server.
 
-
-		// Check sleep duration - 120 ms
-		/*Clock clock;
-		auto start = chrono::steady_clock::now();
-		this_thread::sleep_for(chrono::milliseconds(100));
-		auto end = chrono::steady_clock::now();
-		auto duration = chrono::duration_cast<chrono::milliseconds>(end - start);*/
-
-
 		// Receive packet from server. Check what command it is and then call that function.
 		Packet receivedPacket;
 		auto status = socket.receive(receivedPacket);
@@ -466,18 +458,18 @@ void Client::gameLoop() {
 		}
 		else handleErrors(status);
 
-		// If no update received for 50 ms, then set position to actual player shape.
-		if (playerData[playerID].lastReceivedUpdate.getElapsedTime().asMilliseconds() > 50) {
+		// If no update received for 90 ms, then set position to actual player shape.
+		if (playerData[playerID].lastReceivedUpdate.getElapsedTime().asMilliseconds() > 90) {
 			cout << "Setting to actual position.\n";
 
 			Vector2f currentPosition = predictedPlayerShape.getPosition();
 			Vector2f targetPosition = actualPlayerShape.getPosition();
-			float interpolationSpeed = 0.3f;
+			float extrapolationSpeed = 0.2f;
 
-			Vector2f interpolatedPosition = applyInterpolation(currentPosition, targetPosition, interpolationSpeed);
+			Vector2f extrapolatedPosition = applyExtrapolation(currentPosition, targetPosition, extrapolationSpeed);
 
-			// Update the predicted position with the interpolated value
-			predictedPlayerShape.setPosition(interpolatedPosition);
+			// Update the predicted position with the extrapolated value
+			predictedPlayerShape.setPosition(extrapolatedPosition);
 
 			// playerData[playerID].lastReceivedUpdate.restart();
 		}
@@ -499,23 +491,22 @@ void Client::gameLoop() {
 	}
 }
 
-Vector2f Client::applyInterpolation(Vector2f start, Vector2f end, float speed) {
-	Vector2f interpolatedPosition = {
-				start.x + speed * (end.x - start.x),
-				start.y + speed * (end.y - start.y)
-	};
-	return interpolatedPosition;
+// Extrapolation code
+Vector2f Client::applyExtrapolation(Vector2f start, Vector2f end, float speed) {
+	Vector2f extrapolatedPosition = { start.x + speed * (end.x - start.x), start.y + speed * (end.y - start.y) };
+	return extrapolatedPosition;
 }
 
+// Send actual player position to the server
 void Client::sendPlayerPosition(Vector2f movementVector) {
 	Packet packet;
 	packet << "UPDATE_POSITION" << actualPlayerShape.getPosition().x << actualPlayerShape.getPosition().y << movementVector.x << movementVector.y;
 
-	//cout << "Send: " << actualPlayerShape.getPosition().x << ", " << actualPlayerShape.getPosition().y << " || " << movementVector.x << ", " << movementVector.y << endl;
-
+	cout << "Actual: " << actualPlayerShape.getPosition().x << ", " << actualPlayerShape.getPosition().y << " || " << movementVector.x << ", " << movementVector.y << endl;
 	if (socket.send(packet) != Socket::Done) cerr << "Failed to send player position to the server.\n";
 }
 
+// Receive the predicted positions from the server
 void Client::receivePlayerPositions(Packet packet) {
 	for (size_t i = 0; i < playerData.size(); ++i) {
 		long long timestamp;
@@ -527,12 +518,15 @@ void Client::receivePlayerPositions(Packet packet) {
 		playerData[id].lastReceivedTimestamp = timestamp;
 		playerData[id].lastReceivedUpdate.restart();
 		playerData[id].id = id;
-		playerData[id].position = applyInterpolation(playerData[id].position, Vector2f(x, y), 0.3); //{ x, y };
+		playerData[id].position = applyExtrapolation(playerData[id].position, Vector2f(x, y), 0.2); // Apply extrapolation from previous prection position to the newly received predicted position
 
-		//cout << "Received: " << x << ", " << y << " || " << playerData[playerID].lastReceivedUpdate.getElapsedTime().asMilliseconds() << endl;
+		if (id == playerID) {
+			cout << "Predicted: " << x << ", " << y << " || " << playerData[playerID].lastReceivedUpdate.getElapsedTime().asMilliseconds() << endl;
+		}
 	}
 }
 
+// Receive dots position and colour
 void Client::receiveRainbowData(Packet packet) {
 	float x, y, spawnTime;
 	Uint8 r, g, b;
@@ -542,6 +536,7 @@ void Client::receiveRainbowData(Packet packet) {
 	cout << "Rainbow received: " << x << ", " << y << " with spawn time: " << spawnTime << " seconds.\n";
 }
 
+// Clears all rainbows since currently we are only spawning 1
 void Client::deleteRainbowData() {
 	rainbowPositions.clear();
 	rainbowColors.clear();
@@ -577,7 +572,7 @@ void Client::displayScores(Font& font) {
 	}
 }
 
-// Local player
+// Local player (grey shape)
 void Client::renderActualSelf(float x, float y) {
 	CircleShape actualPlayerShape(CIRCLE_RADIUS);
 	actualPlayerShape.setRadius(CIRCLE_RADIUS);
@@ -610,6 +605,7 @@ void Client::renderReceivedShapes() {
 	}
 }
 
+// Render self predicted shape
 void Client::renderPredictedSelf(float x, float y) {
 	CircleShape predictedPlayerShape(CIRCLE_RADIUS);
 	predictedPlayerShape.setRadius(CIRCLE_RADIUS);
@@ -620,6 +616,7 @@ void Client::renderPredictedSelf(float x, float y) {
 	window->draw(predictedPlayerShape);
 }
 
+// Draw the rainbow dots
 void Client::drawRainbowBalls() {
 	for (size_t i = 0; i < rainbowPositions.size(); ++i) {
 		CircleShape rainbow(RAINBOW_RADIUS);

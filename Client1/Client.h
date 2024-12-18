@@ -10,6 +10,7 @@
 #include <deque>
 #include <random>
 #include <thread>
+#include <fstream>
 
 using namespace sf;
 using namespace std;
@@ -68,7 +69,6 @@ private:
 	CircleShape predictedPlayerShape;
 	CircleShape otherPlayerShape;
 
-
 	bool connectToServer();
 
 	// Private helper methods
@@ -82,7 +82,7 @@ private:
 	void receiveInitialPosition();
 
 	void gameLoop();
-	Vector2f applyInterpolation(Vector2f start, Vector2f end, float speed);
+	Vector2f applyExtrapolation(Vector2f start, Vector2f end, float speed);
 	void sendPlayerPosition(Vector2f movementVector);
 	void receivePlayerPositions(Packet packet);
 	void receiveRainbowData(Packet packet);

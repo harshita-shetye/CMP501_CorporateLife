@@ -1,14 +1,3 @@
-/*
-
-Code & Functions Overview:
-
-1. Constructor, run() - Main listener + socket flow for if the players connect, disconnect, rainbow balls spawn/despawn, etc.
-2. processNewClient(), -
-3. processClientData(), - Send predicted coordinates to the clients
-
-*/
-
-
 #include "Server.h"
 
 // Constructor  -> Initialize
@@ -30,8 +19,8 @@ Server::Server(unsigned short port) {
 void Server::run() {
 	while (running) {
 
-		// Check for any incoming events with 10 ms timeout
-		if (selector.wait(milliseconds(20))) {
+		// Check for any incoming events with 20 ms timeout to ensure non-blocking I/O
+		if (selector.wait(milliseconds(30))) {
 
 			// If socket is ready, then process the new client connection
 			if (selector.isReady(listener)) {
@@ -41,7 +30,7 @@ void Server::run() {
 			// Next, iterate through the clients that are connected
 			for (size_t i = 0; i < clientData.size(); ++i) {
 
-				// If any socket is ready, then process the data from it
+				// Only when a socket is ready, process the data from it to avoid blocking
 				if (selector.isReady(*clientData[i].socket)) {
 
 					// Gets the player's name provided and latest actual positions
@@ -56,7 +45,7 @@ void Server::run() {
 			// Send the updated player positions every 30 ms. This includes the predicted positins. Restart the clock after sending the data.
 			if (ticker.getElapsedTime().asMilliseconds() > 30) {
 				sendPlayerPositions();
-				cout << "Sent positions at " << ticker.getElapsedTime().asMilliseconds() << endl;
+				//cout << "Sent positions at " << ticker.getElapsedTime().asMilliseconds() << endl;
 				ticker.restart();
 			}
 
@@ -187,16 +176,14 @@ void Server::processClientData(TcpSocket& client, size_t clientIndex) {
 			packet >> x >> y >> moveX >> moveY;
 
 			auto& clientRef = clientData[clientIndex];
-			Vector2f newPosition = { x, y };
+
 			clientRef.movementVector = { moveX, moveY };
+
 			Time elapsed = clientRef.lastUpdateTime.getElapsedTime();
 			clientRef.lastUpdateTime.restart();
-			clientRef.lastReceivedUpdate.restart(); // UPDATE_POSITION command received
 
 			Vector2f newVelocity = clientRef.movementVector / elapsed.asSeconds();
-			clientRef.acceleration = (newVelocity - clientRef.velocity) / elapsed.asSeconds();
 			clientRef.velocity = smoothingFactor * clientRef.velocity + (1.0f - smoothingFactor) * newVelocity;
-			//clientRef.velocity *= dampingFactor;
 
 			//cout << "Received for Client " << clientIndex << ": " << x << ", " << y << " || " << gameTime.getElapsedTime().asSeconds() << " || V" << clientRef.velocity.x << ", " << clientRef.velocity.y << endl;
 
@@ -208,27 +195,15 @@ void Server::processClientData(TcpSocket& client, size_t clientIndex) {
 				broadcastUpdatedScores();  // Send updated scores to both players
 			}
 
+			Vector2f newPosition = { x, y };
+
 			// Store the new position in the deque
 			PositionSnapshot snapshot = { newPosition, chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now().time_since_epoch()).count() };
 			auto& positionHistory = clientRef.positionHistory;
 			positionHistory.push_back(snapshot);
 
-			// Initialize or update the position history
-			if (positionHistory.empty()) {
-				// Add the first snapshot twice to initialize with valid data
-				positionHistory.push_back(snapshot);
-				positionHistory.push_back(snapshot);
-			}
-			else if (positionHistory.size() < 2) {
-				// Add one more snapshot to allow predictions
-				positionHistory.push_back(snapshot);
-			}
-			else {
-				// Regular update: Add the snapshot and ensure the size limit
-				positionHistory.push_back(snapshot);
-				if (positionHistory.size() > 4) {
-					positionHistory.pop_front();
-				}
+			if (positionHistory.size() > 4) {
+				positionHistory.pop_front();
 			}
 
 			clientRef.position = newPosition;
@@ -296,12 +271,13 @@ void Server::predictedPosition(const ClientData& client) {
 
 			// Calculate velocity (last two positions)
 			float timeDelta = (lastPosition.timestamp - secondLastPosition.timestamp) / 1000.0f; // Convert ms to seconds
+
 			if (timeDelta > 0.0f) {
 				Vector2f velocity = (lastPosition.position - secondLastPosition.position) / timeDelta;
 
 				// Predict based on velocity and elapsed time
-				float predictionTime = 2.f * timeDelta; // ticker.getElapsedTime().asSeconds();
-				predictedPosition = lastPosition.position + (client.velocity * 2.5f) * predictionTime;
+				float predictionTime = 2.f * ticker.getElapsedTime().asSeconds();
+				predictedPosition = lastPosition.position + (velocity * 2.5f) * predictionTime;
 			}
 			else {
 				// Not enough data, use last known position
@@ -314,7 +290,7 @@ void Server::predictedPosition(const ClientData& client) {
 		predictedPosition = smoothingFactor * client.position + (1.0f - smoothingFactor) * predictedPosition;
 
 		// Limit drift
-		float maxDrift = 100.0f; // Maximum allowable drift
+		float maxDrift = 50.0f; // Maximum allowable drift
 		if (abs(predictedPosition.x - client.position.x) > maxDrift ||
 			abs(predictedPosition.y - client.position.y) > maxDrift) {
 			predictedPosition = client.position; // Revert to last known position
